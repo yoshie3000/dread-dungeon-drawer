@@ -4,7 +4,7 @@ import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash
 import Canvas from './components/Canvas';
 
 function App() {
-  const { tool, setTool, hatchStyle, setHatchStyle, showGrid, toggleGrid, gridSize, setGridSize } = useMapStore();
+  const { tool, setTool, hatchStyle, setHatchStyle, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, showGrid, toggleGrid, gridSize, setGridSize } = useMapStore();
 
   const tools = [
     { id: 'select', icon: MousePointer2, label: 'Select' },
@@ -105,7 +105,44 @@ function App() {
             >
               <option value="dyson-hatch">Classic Cross-Hatch</option>
               <option value="dyson-scrumb">Scrumbled Lines</option>
+              <option value="dyson-dynamic">Procedural Dyson</option>
             </select>
+          </div>
+          <div>
+            <label className="block text-sm text-slate-700 mb-1 mt-4">Hatch Density ({hatchDensity})</label>
+            <input 
+              type="range" 
+              className="w-full" 
+              value={hatchDensity}
+              onChange={(e) => setHatchDensity(Number(e.target.value))}
+              min="10"
+              max="200"
+              step="10"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-slate-700 mb-1 mt-4">Hatch Max Width ({(hatchWidth * 100).toFixed(0)}%)</label>
+            <input 
+              type="range" 
+              className="w-full" 
+              value={hatchWidth}
+              onChange={(e) => setHatchWidth(Number(e.target.value))}
+              min="0.1"
+              max="0.5"
+              step="0.05"
+            />
+          </div>
+          <div className="mt-4 flex items-center">
+            <input 
+              type="checkbox" 
+              id="hatch-organic"
+              checked={hatchOrganic}
+              onChange={(e) => setHatchOrganic(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+            />
+            <label htmlFor="hatch-organic" className="ml-2 block text-sm text-slate-700">
+              Organic Boundary (10% - Max)
+            </label>
           </div>
         </div>
       </div>

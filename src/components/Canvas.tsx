@@ -2,6 +2,7 @@ import React, { useRef, useState, MouseEvent, WheelEvent, useEffect } from 'reac
 import { useMapStore } from '../store';
 import type { Point, MapElement } from '../store';
 import rough from 'roughjs';
+import { generateDysonLines } from '../utils/dysonGenerator';
 
 const generator = rough.generator();
 
@@ -21,7 +22,7 @@ function getRoughPath(drawable: any): string {
 }
 
 export default function Canvas() {
-  const { viewState, setViewState, gridSize, showGrid, tool, hatchStyle, elements, addElement, setElements } = useMapStore();
+  const { viewState, setViewState, gridSize, showGrid, tool, hatchStyle, hatchDensity, hatchWidth, hatchOrganic, elements, addElement, setElements } = useMapStore();
   const svgRef = useRef<SVGSVGElement>(null);
   
   const [isPanning, setIsPanning] = useState(false);
@@ -287,6 +288,29 @@ export default function Canvas() {
   const mergedRoughPaths = mergedLines.map(line => getRoughPath(generator.line(line.x1, line.y1, line.x2, line.y2, { roughness: 1.5, strokeWidth: 2.5 })));
   // --------------------------
 
+  const dysonDynamicPath = React.useMemo(() => {
+    return generateDysonLines(gridSize, hatchDensity);
+  }, [gridSize, hatchDensity]);
+
+  const organicMaskElements = React.useMemo(() => {
+    if (!hatchOrganic) return null;
+    const elementsList: React.ReactNode[] = [];
+    
+    mergedLines.forEach((line, i) => {
+      const len = Math.hypot(line.x2 - line.x1, line.y2 - line.y1);
+      const steps = Math.max(1, Math.ceil(len / 8));
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        const x = line.x1 + t * (line.x2 - line.x1);
+        const y = line.y1 + t * (line.y2 - line.y1);
+        const noise = (Math.sin(x * 0.05) + Math.cos(y * 0.05) + 2) / 4; // 0 to 1
+        const radius = gridSize * 0.1 + noise * (gridSize * hatchWidth - gridSize * 0.1);
+        elementsList.push(<circle key={`om-${i}-${s}`} cx={x} cy={y} r={radius} fill={`url(#${hatchStyle})`} />);
+      }
+    });
+    return elementsList;
+  }, [hatchOrganic, mergedLines, gridSize, hatchWidth, hatchStyle]);
+
   return (
     <svg 
       id="map-svg"
@@ -301,6 +325,10 @@ export default function Canvas() {
       <defs>
         <pattern id="dyson-hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
           <path d="M 0,0 L 0,8" stroke="#1a1a1a" strokeWidth="1.5" strokeLinecap="square" />
+        </pattern>
+        <pattern id="dyson-dynamic" width={gridSize} height={gridSize} patternUnits="userSpaceOnUse">
+          <rect width={gridSize} height={gridSize} fill="white" />
+          <path d={dysonDynamicPath} stroke="black" strokeWidth="1" fill="none" strokeLinecap="round" />
         </pattern>
 
         <pattern id="dyson-scrumb" width="50" height="250" patternUnits="userSpaceOnUse">
@@ -367,7 +395,7 @@ export default function Canvas() {
         
         {/* Layer 1: Dyson Hatch (All sides) */}
         <g opacity={0.8}>
-          {elements.map(el => {
+          {!hatchOrganic && elements.map(el => {
             if (el.type === 'room' || el.type === 'interior') {
               const w = el.points[1].x - el.points[0].x;
               const h = el.points[1].y - el.points[0].y;
@@ -380,7 +408,7 @@ export default function Canvas() {
                   height={h} 
                   fill="none"
                   stroke={`url(#${hatchStyle})`}
-                  strokeWidth={gridSize} 
+                  strokeWidth={gridSize * hatchWidth * 2} 
                   strokeLinejoin="round" 
                 />
               );
@@ -392,13 +420,14 @@ export default function Canvas() {
                   x1={el.points[0].x} y1={el.points[0].y}
                   x2={el.points[1].x} y2={el.points[1].y}
                   stroke={`url(#${hatchStyle})`}
-                  strokeWidth={gridSize}
+                  strokeWidth={gridSize * hatchWidth * 2}
                   strokeLinecap="square"
                 />
               );
             }
             return null;
           })}
+          {hatchOrganic && organicMaskElements}
         </g>
 
         {/* Layer 2: Room Floor (White rects) */}

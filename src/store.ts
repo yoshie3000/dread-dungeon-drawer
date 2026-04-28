@@ -18,8 +18,14 @@ export interface MapElement {
 interface MapState {
   tool: Tool;
   setTool: (tool: Tool) => void;
-  hatchStyle: HatchStyle;
-  setHatchStyle: (style: HatchStyle) => void;
+  hatchStyle: any;
+  setHatchStyle: (style: any) => void;
+  hatchDensity: number;
+  setHatchDensity: (density: number) => void;
+  hatchWidth: number;
+  setHatchWidth: (width: number) => void;
+  hatchOrganic: boolean;
+  setHatchOrganic: (organic: boolean) => void;
   elements: MapElement[];
   setElements: (elements: MapElement[]) => void;
   addElement: (element: MapElement) => void;
@@ -38,6 +44,12 @@ export const useMapStore = create<MapState>((set) => ({
   setTool: (tool) => set({ tool }),
   hatchStyle: 'dyson-hatch',
   setHatchStyle: (hatchStyle) => set({ hatchStyle }),
+  hatchDensity: 50,
+  setHatchDensity: (density) => set({ hatchDensity: density }),
+  hatchWidth: 0.5,
+  setHatchWidth: (width) => set({ hatchWidth: width }),
+  hatchOrganic: false,
+  setHatchOrganic: (organic) => set({ hatchOrganic: organic }),
   elements: [],
   setElements: (elements) => set({ elements }),
   addElement: (element) => set((state) => ({ elements: [...state.elements, element] })),
