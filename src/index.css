@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #f8fafc; /* slate-50 */
+}
+
+/* Dyson Style Specifics */
+.dyson-wall {
+  fill: none;
+  stroke: #1a1a1a;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.dyson-grid {
+  stroke: #e2e8f0; /* slate-200 */
+  stroke-width: 1px;
+}
