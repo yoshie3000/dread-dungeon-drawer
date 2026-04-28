@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { Segment } from './utils/dysonGenerator'
 
 export type ElementType = 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective';
 export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete';
@@ -26,6 +27,10 @@ interface MapState {
   setHatchWidth: (width: number) => void;
   hatchOrganic: boolean;
   setHatchOrganic: (organic: boolean) => void;
+  savedPatterns: (Segment[] | null)[];
+  setSavedPattern: (index: number, segments: Segment[] | null) => void;
+  dynamicSegments: Segment[];
+  setDynamicSegments: (segments: Segment[]) => void;
   elements: MapElement[];
   setElements: (elements: MapElement[]) => void;
   addElement: (element: MapElement) => void;
@@ -50,6 +55,14 @@ export const useMapStore = create<MapState>((set) => ({
   setHatchWidth: (width) => set({ hatchWidth: width }),
   hatchOrganic: false,
   setHatchOrganic: (organic) => set({ hatchOrganic: organic }),
+  savedPatterns: [null, null, null, null],
+  setSavedPattern: (index, segments) => set((state) => {
+    const newPatterns = [...state.savedPatterns];
+    newPatterns[index] = segments;
+    return { savedPatterns: newPatterns };
+  }),
+  dynamicSegments: [],
+  setDynamicSegments: (segments) => set({ dynamicSegments: segments }),
   elements: [],
   setElements: (elements) => set({ elements }),
   addElement: (element) => set((state) => ({ elements: [...state.elements, element] })),

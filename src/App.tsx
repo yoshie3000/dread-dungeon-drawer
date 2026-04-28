@@ -1,10 +1,18 @@
-import React from 'react';
+import { useState, useEffect } from 'react';
 import { useMapStore } from './store';
 import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download } from 'lucide-react';
 import Canvas from './components/Canvas';
+import PatternEditor from './components/PatternEditor';
+import { generateDysonSegments, segmentsToPath } from './utils/dysonGenerator';
 
 function App() {
-  const { tool, setTool, hatchStyle, setHatchStyle, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, showGrid, toggleGrid, gridSize, setGridSize } = useMapStore();
+  const { tool, setTool, hatchStyle, setHatchStyle, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, showGrid, toggleGrid, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern } = useMapStore();
+
+  const [editingSlot, setEditingSlot] = useState<number | null>(null);
+
+  useEffect(() => {
+    setDynamicSegments(generateDysonSegments(gridSize, hatchDensity));
+  }, [gridSize, hatchDensity, setDynamicSegments]);
 
   const tools = [
     { id: 'select', icon: MousePointer2, label: 'Select' },
@@ -144,8 +152,77 @@ function App() {
               Organic Boundary (10% - Max)
             </label>
           </div>
+
+          {hatchStyle === 'dyson-dynamic' || hatchStyle.startsWith('saved-') ? (
+            <div className="mt-6 border-t pt-4">
+              <h3 className="text-sm font-semibold text-slate-800 mb-2">Dyson Pattern Studio</h3>
+              <div className="bg-slate-100 rounded-md p-2 mb-4 border border-slate-200 text-center">
+                <span className="text-xs text-slate-500 block mb-1">Current Dynamic Pattern</span>
+                <svg width="100" height="100" viewBox={`0 0 ${gridSize} ${gridSize}`} className="mx-auto bg-white border border-slate-300">
+                  <path d={segmentsToPath(dynamicSegments)} stroke="black" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+                </svg>
+                <button 
+                  onClick={() => setDynamicSegments(generateDysonSegments(gridSize, hatchDensity))}
+                  className="mt-2 text-xs text-indigo-600 hover:text-indigo-800"
+                >
+                  Regenerate
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                {[0, 1, 2, 3].map(i => {
+                  const pattern = savedPatterns[i];
+                  return (
+                    <div key={`slot-${i}`} className={`p-2 rounded border flex flex-col items-center ${hatchStyle === `saved-${i}` ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white'}`}>
+                      <div className="text-xs font-medium text-slate-600 mb-1 flex items-center justify-between w-full">
+                        <span>Slot {i + 1}</span>
+                        {hatchStyle === `saved-${i}` && <span className="text-[10px] text-indigo-600 font-bold">ACTIVE</span>}
+                      </div>
+                      {pattern ? (
+                        <>
+                          <svg width="60" height="60" viewBox={`0 0 ${gridSize} ${gridSize}`} className="bg-white border border-slate-200 mb-2 cursor-pointer hover:border-indigo-400" onClick={() => setHatchStyle(`saved-${i}`)}>
+                            <path d={segmentsToPath(pattern)} stroke="black" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+                          </svg>
+                          <div className="flex gap-1 w-full">
+                            <button onClick={() => setEditingSlot(i)} className="flex-1 py-1 text-[10px] bg-slate-100 hover:bg-slate-200 rounded text-slate-600 transition-colors">Edit</button>
+                            <button onClick={() => {
+                              setSavedPattern(i, null);
+                              if (hatchStyle === `saved-${i}`) setHatchStyle('dyson-dynamic');
+                            }} className="flex-1 py-1 text-[10px] bg-red-50 hover:bg-red-100 rounded text-red-600 transition-colors">Clear</button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex-1 flex items-center justify-center w-full h-[60px] border border-dashed border-slate-300 rounded mb-2 bg-slate-50 hover:bg-slate-100 transition-colors">
+                          <button 
+                            onClick={() => setSavedPattern(i, dynamicSegments)}
+                            className="text-[10px] text-slate-500 hover:text-indigo-600 font-medium w-full h-full"
+                          >
+                            Save Here
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
+
         </div>
       </div>
+
+      {editingSlot !== null && savedPatterns[editingSlot] !== null && (
+        <PatternEditor 
+          initialSegments={savedPatterns[editingSlot]!} 
+          gridSize={gridSize} 
+          onSave={(newSegs) => {
+            setSavedPattern(editingSlot, newSegs);
+            setEditingSlot(null);
+          }} 
+          onCancel={() => setEditingSlot(null)} 
+        />
+      )}
+
     </div>
   );
 }
