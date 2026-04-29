@@ -23,7 +23,7 @@ function getRoughPath(drawable: any): string {
 }
 
 export default function Canvas() {
-  const { viewState, setViewState, gridSize, showGrid, tool, hatchStyle, hatchWidth, hatchOrganic, elements, addElement, setElements, dynamicSegments, savedPatterns } = useMapStore();
+  const { viewState, setViewState, gridSize, showGrid, tool, hatchStyle, hatchWidth, hatchOrganic, hatchSmoothness, elements, addElement, setElements, dynamicSegments, savedPatterns } = useMapStore();
   const svgRef = useRef<SVGSVGElement>(null);
   
   const [isPanning, setIsPanning] = useState(false);
@@ -297,20 +297,39 @@ export default function Canvas() {
     if (!hatchOrganic) return null;
     const elementsList: React.ReactNode[] = [];
     
+    const chunkSize = 50 - (hatchSmoothness / 100) * 45;
+
     mergedLines.forEach((line, i) => {
       const len = Math.hypot(line.x2 - line.x1, line.y2 - line.y1);
-      const steps = Math.max(1, Math.ceil(len / 8));
+      const stepSize = 4;
+      const steps = Math.max(1, Math.ceil(len / stepSize));
+      
       for (let s = 0; s <= steps; s++) {
         const t = s / steps;
         const x = line.x1 + t * (line.x2 - line.x1);
         const y = line.y1 + t * (line.y2 - line.y1);
-        const noise = (Math.sin(x * 0.05) + Math.cos(y * 0.05) + 2) / 4; // 0 to 1
+        
+        const chunkX = Math.floor(x / chunkSize) * chunkSize;
+        const chunkY = Math.floor(y / chunkSize) * chunkSize;
+
+        const noise = (Math.sin(chunkX * 0.05) + Math.cos(chunkY * 0.05) + 2) / 4; // 0 to 1
         const radius = gridSize * 0.1 + noise * (gridSize * hatchWidth - gridSize * 0.1);
-        elementsList.push(<circle key={`om-${i}-${s}`} cx={x} cy={y} r={radius} fill={`url(#${hatchStyle})`} />);
+        
+        // Using rects naturally creates an angular, blocky mask that aligns with orthogonal walls
+        elementsList.push(
+          <rect 
+            key={`om-${i}-${s}`} 
+            x={x - radius} 
+            y={y - radius} 
+            width={radius * 2} 
+            height={radius * 2} 
+            fill={`url(#${hatchStyle})`} 
+          />
+        );
       }
     });
     return elementsList;
-  }, [hatchOrganic, mergedLines, gridSize, hatchWidth, hatchStyle]);
+  }, [hatchOrganic, mergedLines, gridSize, hatchWidth, hatchStyle, hatchSmoothness]);
 
   return (
     <svg 

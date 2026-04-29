@@ -1,18 +1,34 @@
 import { useState, useEffect } from 'react';
 import { useMapStore } from './store';
-import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download } from 'lucide-react';
+import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download, Undo2, Redo2 } from 'lucide-react';
 import Canvas from './components/Canvas';
 import PatternEditor from './components/PatternEditor';
 import { generateDysonSegments, segmentsToPath } from './utils/dysonGenerator';
 
 function App() {
-  const { tool, setTool, hatchStyle, setHatchStyle, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, showGrid, toggleGrid, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern } = useMapStore();
+  const { tool, setTool, hatchStyle, setHatchStyle, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, showGrid, toggleGrid, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements } = useMapStore();
 
   const [editingSlot, setEditingSlot] = useState<number | null>(null);
 
   useEffect(() => {
     setDynamicSegments(generateDysonSegments(gridSize, hatchDensity));
   }, [gridSize, hatchDensity, setDynamicSegments]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        if (e.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        redo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo]);
 
   const tools = [
     { id: 'select', icon: MousePointer2, label: 'Select' },
@@ -61,7 +77,24 @@ function App() {
           </button>
         ))}
         
-        <div className="mt-auto">
+        <div className="mt-auto flex flex-col gap-2">
+          <button 
+            className={`p-3 rounded-xl transition-colors ${pastElements.length > 0 ? 'text-slate-500 hover:bg-slate-100 cursor-pointer' : 'text-slate-300 cursor-not-allowed'}`}
+            title="Undo (Cmd/Ctrl + Z)"
+            onClick={() => pastElements.length > 0 && undo()}
+            disabled={pastElements.length === 0}
+          >
+            <Undo2 size={24} strokeWidth={2} />
+          </button>
+          <button 
+            className={`p-3 rounded-xl transition-colors ${futureElements.length > 0 ? 'text-slate-500 hover:bg-slate-100 cursor-pointer' : 'text-slate-300 cursor-not-allowed'}`}
+            title="Redo (Cmd/Ctrl + Y)"
+            onClick={() => futureElements.length > 0 && redo()}
+            disabled={futureElements.length === 0}
+          >
+            <Redo2 size={24} strokeWidth={2} />
+          </button>
+          <div className="w-8 h-px bg-slate-200 mx-auto my-1"></div>
           <button 
             className="p-3 rounded-xl text-slate-500 hover:bg-slate-100"
             title="Export SVG"
@@ -140,17 +173,41 @@ function App() {
               step="0.05"
             />
           </div>
-          <div className="mt-4 flex items-center">
-            <input 
-              type="checkbox" 
-              id="hatch-organic"
-              checked={hatchOrganic}
-              onChange={(e) => setHatchOrganic(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
-            />
-            <label htmlFor="hatch-organic" className="ml-2 block text-sm text-slate-700">
-              Organic Boundary (10% - Max)
-            </label>
+          <div className="mt-4 flex flex-col gap-2">
+            <div className="flex items-center">
+              <input 
+                type="checkbox" 
+                id="hatch-organic"
+                checked={hatchOrganic}
+                onChange={(e) => setHatchOrganic(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+              />
+              <label htmlFor="hatch-organic" className="ml-2 block text-sm text-slate-700">
+                Organic Boundary (10% - Max)
+              </label>
+            </div>
+            
+            {hatchOrganic && (
+              <div className="ml-6 mt-2 p-3 bg-slate-50 border border-slate-200 rounded-md">
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Smoothness</label>
+                  <span className="text-xs text-slate-500 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">{hatchSmoothness}</span>
+                </div>
+                <input 
+                  type="range" 
+                  className="w-full accent-indigo-500" 
+                  value={hatchSmoothness}
+                  onChange={(e) => setHatchSmoothness(Number(e.target.value))}
+                  min="0"
+                  max="100"
+                  step="5"
+                />
+                <div className="flex justify-between text-[10px] text-slate-400 mt-1 uppercase font-medium">
+                  <span>Blocky</span>
+                  <span>Smooth</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {hatchStyle === 'dyson-dynamic' || hatchStyle.startsWith('saved-') ? (

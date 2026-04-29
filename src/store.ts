@@ -27,15 +27,21 @@ interface MapState {
   setHatchWidth: (width: number) => void;
   hatchOrganic: boolean;
   setHatchOrganic: (organic: boolean) => void;
+  hatchSmoothness: number;
+  setHatchSmoothness: (smoothness: number) => void;
   savedPatterns: (Segment[] | null)[];
   setSavedPattern: (index: number, segments: Segment[] | null) => void;
   dynamicSegments: Segment[];
   setDynamicSegments: (segments: Segment[]) => void;
   elements: MapElement[];
+  pastElements: MapElement[][];
+  futureElements: MapElement[][];
   setElements: (elements: MapElement[]) => void;
   addElement: (element: MapElement) => void;
   updateElement: (id: string, element: Partial<MapElement>) => void;
   removeElement: (id: string) => void;
+  undo: () => void;
+  redo: () => void;
   viewState: { x: number, y: number, zoom: number };
   setViewState: (viewState: Partial<{x: number, y: number, zoom: number}>) => void;
   gridSize: number;
@@ -55,6 +61,8 @@ export const useMapStore = create<MapState>((set) => ({
   setHatchWidth: (width) => set({ hatchWidth: width }),
   hatchOrganic: false,
   setHatchOrganic: (organic) => set({ hatchOrganic: organic }),
+  hatchSmoothness: 50,
+  setHatchSmoothness: (smoothness) => set({ hatchSmoothness: smoothness }),
   savedPatterns: [null, null, null, null],
   setSavedPattern: (index, segments) => set((state) => {
     const newPatterns = [...state.savedPatterns];
@@ -64,14 +72,48 @@ export const useMapStore = create<MapState>((set) => ({
   dynamicSegments: [],
   setDynamicSegments: (segments) => set({ dynamicSegments: segments }),
   elements: [],
-  setElements: (elements) => set({ elements }),
-  addElement: (element) => set((state) => ({ elements: [...state.elements, element] })),
+  pastElements: [],
+  futureElements: [],
+  setElements: (elements) => set((state) => ({ 
+    pastElements: [...state.pastElements, state.elements],
+    futureElements: [],
+    elements 
+  })),
+  addElement: (element) => set((state) => ({ 
+    pastElements: [...state.pastElements, state.elements],
+    futureElements: [],
+    elements: [...state.elements, element] 
+  })),
   updateElement: (id, updated) => set((state) => ({
+    pastElements: [...state.pastElements, state.elements],
+    futureElements: [],
     elements: state.elements.map(e => e.id === id ? { ...e, ...updated } : e)
   })),
   removeElement: (id) => set((state) => ({
+    pastElements: [...state.pastElements, state.elements],
+    futureElements: [],
     elements: state.elements.filter(e => e.id !== id)
   })),
+  undo: () => set((state) => {
+    if (state.pastElements.length === 0) return state;
+    const newPast = [...state.pastElements];
+    const previous = newPast.pop()!;
+    return {
+      pastElements: newPast,
+      futureElements: [state.elements, ...state.futureElements],
+      elements: previous
+    };
+  }),
+  redo: () => set((state) => {
+    if (state.futureElements.length === 0) return state;
+    const newFuture = [...state.futureElements];
+    const next = newFuture.shift()!;
+    return {
+      pastElements: [...state.pastElements, state.elements],
+      futureElements: newFuture,
+      elements: next
+    };
+  }),
   viewState: { x: 0, y: 0, zoom: 1 },
   setViewState: (viewState) => set((state) => ({ viewState: { ...state.viewState, ...viewState } })),
   gridSize: 50,
