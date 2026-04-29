@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useMapStore } from './store';
-import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download, Undo2, Redo2 } from 'lucide-react';
+import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download, Undo2, Redo2, Crop, RotateCw } from 'lucide-react';
 import Canvas from './components/Canvas';
 import PatternEditor from './components/PatternEditor';
 import { generateDysonSegments, segmentsToPath } from './utils/dysonGenerator';
 
 function App() {
-  const { tool, setTool, hatchStyle, setHatchStyle, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, showGrid, toggleGrid, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements } = useMapStore();
+  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, showGrid, toggleGrid, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements } = useMapStore();
 
   const [editingSlot, setEditingSlot] = useState<number | null>(null);
 
@@ -42,24 +42,62 @@ function App() {
     { id: 'stair-depth', icon: ArrowDownSquare, label: 'Stair (Depth)' },
     { id: 'stair-perspective', icon: ArrowDownCircle, label: 'Stair (Perspective)' },
     { id: 'delete', icon: Trash2, label: 'Erase Area' },
+    { id: 'rotate', icon: RotateCw, label: 'Rotate' },
+    { id: 'export-region', icon: Crop, label: 'Export Region' },
   ] as const;
 
-  const handleExport = () => {
+  const exportMap = (bbox?: { minX: number, minY: number, maxX: number, maxY: number }) => {
     const svg = document.getElementById('map-svg');
     if (!svg) return;
+    
     const serializer = new XMLSerializer();
     let source = serializer.serializeToString(svg);
+    
     if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
         source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
     }
+
+    // Strip the transform from the main container so it exports at original coordinates
+    source = source.replace(/<g id="map-container" transform="[^"]*">/, '<g id="map-container">');
+
+    let exportBBox = bbox;
+    if (!exportBBox) {
+      if (elements.length === 0) {
+        exportBBox = { minX: 0, minY: 0, maxX: 1000, maxY: 1000 };
+      } else {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        elements.forEach(el => {
+          el.points.forEach(p => {
+            if (p.x < minX) minX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y > maxY) maxY = p.y;
+          });
+        });
+        exportBBox = {
+          minX: minX - gridSize * 2,
+          minY: minY - gridSize * 2,
+          maxX: maxX + gridSize * 2,
+          maxY: maxY + gridSize * 2,
+        };
+      }
+    }
+
+    const width = exportBBox.maxX - exportBBox.minX;
+    const height = exportBBox.maxY - exportBBox.minY;
+
+    // Inject the correct viewBox and dimensions
+    source = source.replace(/^<svg([^>]*)>/, `<svg$1 viewBox="${exportBBox.minX} ${exportBBox.minY} ${width} ${height}" width="${width}" height="${height}">`);
+
     const blob = new Blob([source], {type: "image/svg+xml;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "osr-map.svg";
+    link.download = bbox ? "osr-map-region.svg" : "osr-map-full.svg";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    setTool('select');
   };
 
   return (
@@ -97,8 +135,8 @@ function App() {
           <div className="w-8 h-px bg-slate-200 mx-auto my-1"></div>
           <button 
             className="p-3 rounded-xl text-slate-500 hover:bg-slate-100"
-            title="Export SVG"
-            onClick={handleExport}
+            title="Export Full Map SVG"
+            onClick={() => exportMap()}
           >
             <Download size={24} strokeWidth={2} />
           </button>
@@ -107,7 +145,7 @@ function App() {
 
       {/* Main Canvas Area */}
       <div className="flex-1 relative overflow-hidden bg-slate-200">
-        <Canvas />
+        <Canvas onExportRegion={exportMap} />
       </div>
 
       {/* Right Sidebar - Properties */}
@@ -145,9 +183,29 @@ function App() {
               className="w-full rounded border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border bg-white"
             >
               <option value="dyson-hatch">Classic Cross-Hatch</option>
-              <option value="dyson-scrumb">Scrumbled Lines</option>
+              <option value="soft-border">Soft Border</option>
               <option value="dyson-dynamic">Procedural Dyson</option>
             </select>
+            
+            {hatchStyle === 'soft-border' && (
+              <div className="mt-3">
+                <label className="block text-xs font-medium text-slate-500 mb-1">Border Color</label>
+                <div className="flex gap-2">
+                  {[
+                    { value: 'rgba(0,0,0,0.625)', bg: 'bg-black' },
+                    { value: 'rgba(64,64,64,0.625)', bg: 'bg-stone-700' },
+                    { value: 'rgba(160,160,160,0.625)', bg: 'bg-stone-400' }
+                  ].map(color => (
+                    <button
+                      key={color.value}
+                      onClick={() => setSoftBorderColor(color.value)}
+                      className={`w-8 h-8 rounded-full border-2 ${color.bg} ${softBorderColor === color.value ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-transparent'}`}
+                      title={color.bg.replace('bg-', '')}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-sm text-slate-700 mb-1 mt-4">Hatch Density ({hatchDensity})</label>

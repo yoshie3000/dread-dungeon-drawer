@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { Segment } from './utils/dysonGenerator'
 
 export type ElementType = 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective';
-export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete';
+export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete' | 'export-region' | 'rotate';
 
 export interface Point {
   x: number;
@@ -21,6 +21,8 @@ interface MapState {
   setTool: (tool: Tool) => void;
   hatchStyle: any;
   setHatchStyle: (style: any) => void;
+  softBorderColor: string;
+  setSoftBorderColor: (color: string) => void;
   hatchDensity: number;
   setHatchDensity: (density: number) => void;
   hatchWidth: number;
@@ -55,6 +57,8 @@ export const useMapStore = create<MapState>((set) => ({
   setTool: (tool) => set({ tool }),
   hatchStyle: 'dyson-hatch',
   setHatchStyle: (hatchStyle) => set({ hatchStyle }),
+  softBorderColor: 'rgba(0,0,0,0.625)',
+  setSoftBorderColor: (color) => set({ softBorderColor: color }),
   hatchDensity: 50,
   setHatchDensity: (density) => set({ hatchDensity: density }),
   hatchWidth: 0.5,
