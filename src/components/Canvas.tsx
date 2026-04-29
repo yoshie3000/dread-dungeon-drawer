@@ -59,7 +59,25 @@ interface CanvasProps {
 }
 
 export default function Canvas({ onExportRegion }: CanvasProps) {
-  const { viewState, setViewState, gridSize, showGrid, tool, hatchStyle, softBorderColor, hatchWidth, hatchOrganic, hatchSmoothness, elements, addElement, setElements, dynamicSegments, savedPatterns } = useMapStore();
+  const {
+    elements,
+    setElements,
+    addElement,
+    viewState,
+    setViewState,
+    gridSize,
+    showGrid,
+    tool,
+    hatchStyle,
+    softBorderColor,
+    hatchWidth,
+    hatchOrganic,
+    hatchSmoothness,
+    dynamicSegments,
+    savedPatterns,
+    selectedElementIds,
+    setSelectedElementIds
+  } = useMapStore();
   const svgRef = useRef<SVGSVGElement>(null);
   
   const [isPanning, setIsPanning] = useState(false);
@@ -68,6 +86,16 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
   const [isDrawing, setIsDrawing] = useState(false);
   const [startDrawPoint, setStartDrawPoint] = useState<Point>({ x: 0, y: 0 });
   const [currentDrawPoint, setCurrentDrawPoint] = useState<Point>({ x: 0, y: 0 });
+  
+  // New Selection & Drag states
+  const [isDraggingSelection, setIsDraggingSelection] = useState(false);
+  const [isDrawingSelectionFence, setIsDrawingSelectionFence] = useState(false);
+  const [dragStartPoint, setDragStartPoint] = useState<Point>({ x: 0, y: 0 });
+  const [dragOffset, setDragOffset] = useState({ dx: 0, dy: 0 });
+
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeElementId, setResizeElementId] = useState<string | null>(null);
+  const [resizeScale, setResizeScale] = useState(1);
 
   const getMapCoordinates = (e: MouseEvent<SVGSVGElement> | React.MouseEvent): Point => {
     if (!svgRef.current) return { x: 0, y: 0 };
@@ -89,14 +117,50 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
   };
 
   const handleMouseDown = (e: MouseEvent<SVGSVGElement>) => {
-    if (e.button === 1 || e.button === 2 || e.altKey || tool === 'select') {
+    if (e.button === 1 || e.button === 2 || e.altKey) {
       setIsPanning(true);
       setStartPan({ x: e.clientX, y: e.clientY });
       return;
     }
 
     if (e.button === 0) {
-      if (tool === 'room' || tool === 'interior' || tool === 'fill' || tool === 'unfill' || tool === 'wall' || tool === 'door' || tool === 'stair' || tool === 'stair-depth' || tool === 'stair-perspective' || tool === 'delete' || tool === 'export-region' || tool === 'rotate') {
+      if (tool === 'select') {
+        const rawPoint = getMapCoordinates(e);
+        const snappedPoint = snapToGrid(rawPoint);
+        const clickedEl = getClickedElement(rawPoint, elements);
+        
+        if (clickedEl) {
+          if (selectedElementIds.length === 1 && selectedElementIds[0] === clickedEl.id && clickedEl.type.startsWith('decoration-')) {
+            const maxX = Math.max(...clickedEl.points.map(p => p.x));
+            const maxY = Math.max(...clickedEl.points.map(p => p.y));
+            
+            const handleSize = 10;
+            // Snapped check is too strict, check against raw point
+            if (rawPoint.x >= maxX - handleSize && rawPoint.x <= maxX + handleSize && rawPoint.y >= maxY - handleSize && rawPoint.y <= maxY + handleSize) {
+              setIsResizing(true);
+              setResizeElementId(clickedEl.id);
+              
+              const minX = Math.min(...clickedEl.points.map(p => p.x));
+              const minY = Math.min(...clickedEl.points.map(p => p.y));
+              setDragStartPoint({x: minX, y: minY}); // Anchor point
+              setResizeScale(1);
+              return;
+            }
+          }
+
+          if (!selectedElementIds.includes(clickedEl.id)) {
+            setSelectedElementIds([clickedEl.id]);
+          }
+          setIsDraggingSelection(true);
+          setDragStartPoint(snappedPoint);
+          setDragOffset({ dx: 0, dy: 0 });
+        } else {
+          setSelectedElementIds([]);
+          setIsDrawingSelectionFence(true);
+          setStartDrawPoint(rawPoint);
+          setCurrentDrawPoint(rawPoint);
+        }
+      } else {
         const point = snapToGrid(getMapCoordinates(e));
         setIsDrawing(true);
         setStartDrawPoint(point);
@@ -117,6 +181,41 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
       return;
     }
 
+    if (isResizing && resizeElementId) {
+      const snappedPoint = snapToGrid(getMapCoordinates(e));
+      const el = elements.find(el => el.id === resizeElementId);
+      if (el) {
+        const minX = Math.min(...el.points.map(p => p.x));
+        const maxX = Math.max(...el.points.map(p => p.x));
+        const minY = Math.min(...el.points.map(p => p.y));
+        const maxY = Math.max(...el.points.map(p => p.y));
+        
+        const origWidth = maxX - minX;
+        const origHeight = maxY - minY;
+        
+        if (origWidth > 0 && origHeight > 0) {
+          const mouseDist = Math.hypot(snappedPoint.x - minX, snappedPoint.y - minY);
+          const origDist = Math.hypot(origWidth, origHeight);
+          setResizeScale(Math.max(mouseDist / origDist, 0.1));
+        }
+      }
+      return;
+    }
+
+    if (isDraggingSelection) {
+      const snappedPoint = snapToGrid(getMapCoordinates(e));
+      setDragOffset({
+        dx: snappedPoint.x - dragStartPoint.x,
+        dy: snappedPoint.y - dragStartPoint.y
+      });
+      return;
+    }
+
+    if (isDrawingSelectionFence) {
+      setCurrentDrawPoint(getMapCoordinates(e));
+      return;
+    }
+
     if (isDrawing) {
       const point = snapToGrid(getMapCoordinates(e));
       setCurrentDrawPoint(point);
@@ -126,11 +225,94 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
   const handleMouseUp = (e?: React.MouseEvent<SVGSVGElement>) => {
     setIsPanning(false);
 
+    if (isResizing && resizeElementId) {
+      setIsResizing(false);
+      if (resizeScale !== 1) {
+        const newElements = elements.map(el => {
+          if (el.id === resizeElementId) {
+            const minX = Math.min(...el.points.map(p => p.x));
+            const minY = Math.min(...el.points.map(p => p.y));
+            const newPoints = el.points.map(p => ({
+              x: Math.round((minX + (p.x - minX) * resizeScale) / gridSize) * gridSize,
+              y: Math.round((minY + (p.y - minY) * resizeScale) / gridSize) * gridSize
+            }));
+            
+            let newProperties = el.properties;
+            if (el.properties?.pivot) {
+               const scale = resizeScale;
+               newProperties = {
+                 ...el.properties,
+                 pivot: { x: minX + (el.properties.pivot.x - minX) * scale, y: minY + (el.properties.pivot.y - minY) * scale },
+                 originalPoints: el.properties.originalPoints?.map((p: Point) => ({
+                   x: Math.round((minX + (p.x - minX) * scale) / gridSize) * gridSize,
+                   y: Math.round((minY + (p.y - minY) * scale) / gridSize) * gridSize
+                 }))
+               };
+            }
+            return { ...el, points: newPoints, properties: newProperties };
+          }
+          return el;
+        });
+        setElements(newElements);
+      }
+      setResizeElementId(null);
+      setResizeScale(1);
+      return;
+    }
+
+    if (isDraggingSelection) {
+      setIsDraggingSelection(false);
+      if (dragOffset.dx !== 0 || dragOffset.dy !== 0) {
+        const newElements = elements.map((el: MapElement) => {
+          if (selectedElementIds.includes(el.id)) {
+            const newPoints = el.points.map((p: Point) => ({ x: p.x + dragOffset.dx, y: p.y + dragOffset.dy }));
+            
+            let newProperties = el.properties;
+            if (el.properties?.pivot) {
+              newProperties = {
+                ...el.properties,
+                pivot: { x: el.properties.pivot.x + dragOffset.dx, y: el.properties.pivot.y + dragOffset.dy },
+                originalPoints: el.properties.originalPoints?.map((p: Point) => ({ x: p.x + dragOffset.dx, y: p.y + dragOffset.dy }))
+              };
+            }
+            
+            return { ...el, points: newPoints, properties: newProperties };
+          }
+          return el;
+        });
+        setElements(newElements);
+      }
+      setDragOffset({ dx: 0, dy: 0 });
+      return;
+    }
+
+    if (isDrawingSelectionFence) {
+      setIsDrawingSelectionFence(false);
+      const minX = Math.min(startDrawPoint.x, currentDrawPoint.x);
+      const minY = Math.min(startDrawPoint.y, currentDrawPoint.y);
+      const maxX = Math.max(startDrawPoint.x, currentDrawPoint.x);
+      const maxY = Math.max(startDrawPoint.y, currentDrawPoint.y);
+      
+      if (maxX - minX > 0 && maxY - minY > 0) {
+        const newlySelectedIds = elements.filter(el => {
+          const elMinX = Math.min(...el.points.map((p: Point) => p.x));
+          const elMaxX = Math.max(...el.points.map((p: Point) => p.x));
+          const elMinY = Math.min(...el.points.map((p: Point) => p.y));
+          const elMaxY = Math.max(...el.points.map((p: Point) => p.y));
+          
+          return !(elMaxX <= minX || elMinX >= maxX || elMaxY <= minY || elMinY >= maxY);
+        }).map(el => el.id);
+        
+        setSelectedElementIds(newlySelectedIds);
+      }
+      return;
+    }
+
     if (isDrawing) {
       setIsDrawing(false);
       
       if (startDrawPoint.x !== currentDrawPoint.x || startDrawPoint.y !== currentDrawPoint.y) {
-        if (tool === 'room' || tool === 'interior' || tool === 'fill' || tool === 'unfill') {
+        if (tool === 'room' || tool === 'interior' || tool === 'fill' || tool === 'unfill' || tool.startsWith('decoration-')) {
           const minX = Math.min(startDrawPoint.x, currentDrawPoint.x);
           const minY = Math.min(startDrawPoint.y, currentDrawPoint.y);
           const maxX = Math.max(startDrawPoint.x, currentDrawPoint.x);
@@ -139,7 +321,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           if (maxX - minX > 0 && maxY - minY > 0) {
              addElement({
                id: Math.random().toString(36).substring(2, 9),
-               type: tool,
+               type: tool as any,
                points: [
                  { x: minX, y: minY },
                  { x: maxX, y: maxY }
@@ -186,10 +368,10 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           if (maxX - minX > 0 && maxY - minY > 0) {
             onExportRegion?.({ minX, minY, maxX, maxY });
           }
-        } else if (tool === 'wall' || tool === 'door') {
+        } else if (tool === 'wall' || tool.startsWith('door')) {
           addElement({
             id: Math.random().toString(36).substring(2, 9),
-            type: tool,
+            type: tool as any,
             points: [startDrawPoint, currentDrawPoint]
           });
         }
@@ -260,9 +442,9 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
               { x: Math.max(rotatedPoints[0].x, rotatedPoints[1].x), y: Math.max(rotatedPoints[0].y, rotatedPoints[1].y) }
             ];
             
-            setElements(elements.map(el => el.id === clickedEl.id ? { ...el, points: finalPoints, properties: newProperties } : el));
+            setElements(elements.map((el: MapElement) => el.id === clickedEl.id ? { ...el, points: finalPoints, properties: newProperties } : el));
           } else {
-            setElements(elements.map(el => el.id === clickedEl.id ? { ...el, points: rotatedPoints, properties: newProperties } : el));
+            setElements(elements.map((el: MapElement) => el.id === clickedEl.id ? { ...el, points: rotatedPoints, properties: newProperties } : el));
           }
         }
       }
@@ -448,8 +630,31 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     return elementsList;
   }, [hatchOrganic, mergedLines, gridSize, hatchWidth, hatchStyle, hatchSmoothness]);
 
+  const renderedElements = elements.map((el: MapElement) => {
+    if (isResizing && resizeElementId === el.id) {
+      const minX = Math.min(...el.points.map(p => p.x));
+      const minY = Math.min(...el.points.map(p => p.y));
+      return {
+        ...el,
+        points: el.points.map(p => ({
+          x: minX + (p.x - minX) * resizeScale,
+          y: minY + (p.y - minY) * resizeScale
+        }))
+      };
+    }
+    const isSelected = selectedElementIds.includes(el.id);
+    if (isSelected && (dragOffset.dx !== 0 || dragOffset.dy !== 0)) {
+      return {
+        ...el,
+        points: el.points.map((p: Point) => ({ x: p.x + dragOffset.dx, y: p.y + dragOffset.dy }))
+      };
+    }
+    return el;
+  });
+
   return (
-    <svg 
+    <div className="w-full h-full relative overflow-hidden bg-[#e9ecef]" id="canvas-container">
+      <svg 
       id="map-svg"
       ref={svgRef}
       className="w-full h-full cursor-crosshair bg-slate-50"
@@ -491,7 +696,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
 
         <mask id="room-mask">
           <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
-          {elements.map(el => {
+          {renderedElements.map((el: MapElement) => {
             if (el.type === 'room' || el.type === 'interior') {
               const w = el.points[1].x - el.points[0].x;
               const h = el.points[1].y - el.points[0].y;
@@ -512,7 +717,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
 
         <mask id="fill-mask">
           <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
-          {elements.map(el => {
+          {renderedElements.map((el: MapElement) => {
             if (el.type === 'fill' || el.type === 'unfill') {
               const w = el.points[1].x - el.points[0].x;
               const h = el.points[1].y - el.points[0].y;
@@ -540,7 +745,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
         
         {/* Layer 1: Dyson Hatch (All sides) */}
         <g opacity={0.8} filter={hatchStyle === 'soft-border' ? 'url(#soft-blur)' : undefined}>
-          {!hatchOrganic && elements.map(el => {
+          {!hatchOrganic && renderedElements.map((el: MapElement) => {
             if (el.type === 'room' || el.type === 'interior') {
               const w = el.points[1].x - el.points[0].x;
               const h = el.points[1].y - el.points[0].y;
@@ -577,7 +782,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
 
         {/* Layer 2: Room Floor (White rects) */}
         <g>
-          {elements.map(el => {
+          {renderedElements.map((el: MapElement) => {
             if (el.type === 'room' || el.type === 'interior') {
               const w = el.points[1].x - el.points[0].x;
               const h = el.points[1].y - el.points[0].y;
@@ -598,7 +803,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
 
         {/* Layer 3: Room Grid */}
         <g>
-          {elements.map(el => {
+          {renderedElements.map((el: MapElement) => {
               if (el.type === 'room' || el.type === 'interior') {
                 const w = el.points[1].x - el.points[0].x;
                 const h = el.points[1].y - el.points[0].y;
@@ -625,7 +830,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
 
         {/* Layer 3.8: Stairs */}
         <g>
-          {elements.map(el => {
+          {renderedElements.map((el: MapElement) => {
             if (el.type === 'stair' || el.type === 'stair-depth' || el.type === 'stair-perspective') {
               const start = el.points[0];
               const end = el.points[1];
@@ -765,7 +970,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
               transform="translate(4, 4)"
             />
           ))}
-          {elements.map(el => {
+          {renderedElements.map((el: MapElement) => {
             if (el.type === 'interior') {
               const w = el.points[1].x - el.points[0].x;
               const h = el.points[1].y - el.points[0].y;
@@ -806,7 +1011,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           {mergedRoughPaths.map((path, i) => (
             <path key={`merged-wall-${i}`} d={path} className="dyson-wall" fill="none" />
           ))}
-          {elements.map(el => {
+          {renderedElements.map((el: MapElement) => {
             if (el.type === 'wall') {
               const drawable = generator.line(el.points[0].x, el.points[0].y, el.points[1].x, el.points[1].y, { roughness: 1.5, strokeWidth: 2.5 });
               const path = getRoughPath(drawable);
@@ -818,8 +1023,8 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
 
         {/* Layer 6: Doors */}
         <g>
-          {elements.map(el => {
-            if (el.type === 'door') {
+          {renderedElements.map((el: MapElement) => {
+            if (el.type === 'door' || el.type === 'door-double' || el.type === 'door-secret') {
               const isHorizontal = el.points[0].y === el.points[1].y;
               const minX = Math.min(el.points[0].x, el.points[1].x);
               const maxX = Math.max(el.points[0].x, el.points[1].x);
@@ -828,6 +1033,17 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
               
               const doorThickness = 16;
               const doorInset = 10;
+
+              if (el.type === 'door-secret') {
+                const cx = minX + (maxX - minX) / 2;
+                const cy = minY + (maxY - minY) / 2;
+                return (
+                  <g key={`door-${el.id}`}>
+                    <circle cx={cx} cy={cy} r={12} fill="white" stroke="black" strokeWidth="1.5" strokeDasharray="2,2" />
+                    <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fontSize="14" fontWeight="bold" fill="black">S</text>
+                  </g>
+                );
+              }
 
               return (
                 <g key={`door-${el.id}`}>
@@ -850,6 +1066,16 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                     stroke="black" 
                     strokeWidth="1.5" 
                   />
+                  {el.type === 'door-double' && (
+                    <line 
+                      x1={isHorizontal ? minX + (maxX - minX) / 2 : minX - doorThickness/2} 
+                      y1={isHorizontal ? minY - doorThickness/2 : minY + (maxY - minY) / 2}
+                      x2={isHorizontal ? minX + (maxX - minX) / 2 : minX + doorThickness/2}
+                      y2={isHorizontal ? minY + doorThickness/2 : minY + (maxY - minY) / 2}
+                      stroke="black"
+                      strokeWidth="1.5"
+                    />
+                  )}
                 </g>
               );
             }
@@ -857,8 +1083,53 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           })}
         </g>
 
+        {/* Layer 7: Decorations */}
+        <g>
+          {renderedElements.map((el: MapElement) => {
+            if (el.type.startsWith('decoration-')) {
+              const minX = Math.min(...el.points.map(p => p.x));
+              const maxX = Math.max(...el.points.map(p => p.x));
+              const minY = Math.min(...el.points.map(p => p.y));
+              const maxY = Math.max(...el.points.map(p => p.y));
+              const width = maxX - minX;
+              const height = maxY - minY;
+              
+              if (width === 0 || height === 0) return null;
+              
+              if (el.type === 'decoration-circle') {
+                return (
+                  <ellipse 
+                    key={`deco-${el.id}`}
+                    cx={minX + width/2}
+                    cy={minY + height/2}
+                    rx={width/2}
+                    ry={height/2}
+                    fill="white"
+                    stroke="black"
+                    strokeWidth="1.5"
+                  />
+                );
+              }
+              
+              return (
+                <rect 
+                  key={`deco-${el.id}`}
+                  x={minX}
+                  y={minY}
+                  width={width}
+                  height={height}
+                  fill="white"
+                  stroke="black"
+                  strokeWidth="1.5"
+                />
+              );
+            }
+            return null;
+          })}
+        </g>
+
         {/* Current Drawing Overlay */}
-        {isDrawing && (tool === 'room' || tool === 'interior' || tool === 'fill' || tool === 'unfill' || tool === 'stair' || tool === 'stair-depth' || tool === 'stair-perspective' || tool === 'delete' || tool === 'export-region') && (
+        {isDrawing && tool !== 'select' && tool !== 'rotate' && (
           <rect 
             x={Math.min(startDrawPoint.x, currentDrawPoint.x)} 
             y={Math.min(startDrawPoint.y, currentDrawPoint.y)} 
@@ -879,7 +1150,58 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
             strokeDasharray="4 4"
           />
         )}
+        {/* Selection Outlines */}
+        {renderedElements.filter((el: MapElement) => selectedElementIds.includes(el.id)).map((el: MapElement) => {
+          const minX = Math.min(...el.points.map((p: Point) => p.x));
+          const maxX = Math.max(...el.points.map((p: Point) => p.x));
+          const minY = Math.min(...el.points.map((p: Point) => p.y));
+          const maxY = Math.max(...el.points.map((p: Point) => p.y));
+          
+          return (
+            <g key={`sel-${el.id}`}>
+              <rect
+                x={minX - 5}
+                y={minY - 5}
+                width={maxX - minX + 10}
+                height={maxY - minY + 10}
+                fill="none"
+                stroke="#3b82f6"
+                strokeWidth="2"
+                strokeDasharray="5,5"
+                pointerEvents="none"
+              />
+              {selectedElementIds.length === 1 && el.type.startsWith('decoration-') && (
+                <rect 
+                  x={maxX - 5} 
+                  y={maxY - 5} 
+                  width={10} 
+                  height={10} 
+                  fill="#3b82f6" 
+                  stroke="white" 
+                  strokeWidth="1.5"
+                  pointerEvents="none"
+                />
+              )}
+            </g>
+          );
+        })}
+
+        {/* Drag Selection Fence */}
+        {isDrawingSelectionFence && (
+          <rect
+            x={Math.min(startDrawPoint.x, currentDrawPoint.x)}
+            y={Math.min(startDrawPoint.y, currentDrawPoint.y)}
+            width={Math.abs(currentDrawPoint.x - startDrawPoint.x)}
+            height={Math.abs(currentDrawPoint.y - startDrawPoint.y)}
+            fill="rgba(59, 130, 246, 0.2)"
+            stroke="#3b82f6"
+            strokeWidth="2"
+            strokeDasharray="5,5"
+            pointerEvents="none"
+          />
+        )}
       </g>
     </svg>
+    </div>
   );
 }

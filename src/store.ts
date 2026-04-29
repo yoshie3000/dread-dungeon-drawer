@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { Segment } from './utils/dysonGenerator'
 
 export type ElementType = 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective';
-export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete' | 'export-region' | 'rotate';
+export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'door-double' | 'door-secret' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete' | 'export-region' | 'rotate' | 'decoration-square' | 'decoration-circle' | 'decoration-rectangle';
 
 export interface Point {
   x: number;
@@ -38,6 +38,8 @@ interface MapState {
   elements: MapElement[];
   pastElements: MapElement[][];
   futureElements: MapElement[][];
+  selectedElementIds: string[];
+  setSelectedElementIds: (ids: string[]) => void;
   setElements: (elements: MapElement[]) => void;
   addElement: (element: MapElement) => void;
   updateElement: (id: string, element: Partial<MapElement>) => void;
@@ -78,6 +80,8 @@ export const useMapStore = create<MapState>((set) => ({
   elements: [],
   pastElements: [],
   futureElements: [],
+  selectedElementIds: [],
+  setSelectedElementIds: (ids) => set({ selectedElementIds: ids }),
   setElements: (elements) => set((state) => ({ 
     pastElements: [...state.pastElements, state.elements],
     futureElements: [],

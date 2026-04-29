@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useMapStore } from './store';
-import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download, Undo2, Redo2, Crop, RotateCw } from 'lucide-react';
+import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download, Undo2, Redo2, Crop, RotateCw, Columns, EyeOff, Circle, Box, RectangleHorizontal, Shapes } from 'lucide-react';
 import Canvas from './components/Canvas';
 import PatternEditor from './components/PatternEditor';
 import { generateDysonSegments, segmentsToPath } from './utils/dysonGenerator';
@@ -9,6 +9,17 @@ function App() {
   const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, showGrid, toggleGrid, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements } = useMapStore();
 
   const [editingSlot, setEditingSlot] = useState<number | null>(null);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (!(e.target as Element).closest('.tool-group')) {
+        setOpenMenu(null);
+      }
+    };
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, []);
 
   useEffect(() => {
     setDynamicSegments(generateDysonSegments(gridSize, hatchDensity));
@@ -30,20 +41,67 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo]);
 
-  const tools = [
-    { id: 'select', icon: MousePointer2, label: 'Select' },
-    { id: 'room', icon: Square, label: 'Room' },
-    { id: 'interior', icon: SquareDashed, label: 'Interior' },
-    { id: 'fill', icon: PaintBucket, label: 'Fill' },
-    { id: 'unfill', icon: Eraser, label: 'Unfill' },
-    { id: 'wall', icon: Slash, label: 'Wall' },
-    { id: 'door', icon: DoorOpen, label: 'Door' },
-    { id: 'stair', icon: ArrowUpSquare, label: 'Stair (Taper)' },
-    { id: 'stair-depth', icon: ArrowDownSquare, label: 'Stair (Depth)' },
-    { id: 'stair-perspective', icon: ArrowDownCircle, label: 'Stair (Perspective)' },
-    { id: 'delete', icon: Trash2, label: 'Erase Area' },
-    { id: 'rotate', icon: RotateCw, label: 'Rotate' },
-    { id: 'export-region', icon: Crop, label: 'Export Region' },
+  const toolGroups = [
+    {
+      id: 'edit',
+      icon: MousePointer2,
+      label: 'Edit & Select',
+      tools: [
+        { id: 'select', icon: MousePointer2, label: 'Select' },
+        { id: 'delete', icon: Trash2, label: 'Erase Area' },
+        { id: 'rotate', icon: RotateCw, label: 'Rotate' },
+        { id: 'export-region', icon: Crop, label: 'Export Region' },
+      ]
+    },
+    {
+      id: 'architecture',
+      icon: Square,
+      label: 'Architecture',
+      tools: [
+        { id: 'room', icon: Square, label: 'Room' },
+        { id: 'interior', icon: SquareDashed, label: 'Interior' },
+        { id: 'wall', icon: Slash, label: 'Wall' },
+      ]
+    },
+    {
+      id: 'hatch',
+      icon: PaintBucket,
+      label: 'Hatching',
+      tools: [
+        { id: 'fill', icon: PaintBucket, label: 'Fill Area' },
+        { id: 'unfill', icon: Eraser, label: 'Unfill Area' },
+      ]
+    },
+    {
+      id: 'doors',
+      icon: DoorOpen,
+      label: 'Doors',
+      tools: [
+        { id: 'door', icon: DoorOpen, label: 'Single Door' },
+        { id: 'door-double', icon: Columns, label: 'Double Door' },
+        { id: 'door-secret', icon: EyeOff, label: 'Secret Door' },
+      ]
+    },
+    {
+      id: 'stairs',
+      icon: ArrowUpSquare,
+      label: 'Stairs',
+      tools: [
+        { id: 'stair', icon: ArrowUpSquare, label: 'Stair (Taper)' },
+        { id: 'stair-depth', icon: ArrowDownSquare, label: 'Stair (Depth)' },
+        { id: 'stair-perspective', icon: ArrowDownCircle, label: 'Stair (Perspective)' },
+      ]
+    },
+    {
+      id: 'decorations',
+      icon: Shapes,
+      label: 'Decorations',
+      tools: [
+        { id: 'decoration-circle', icon: Circle, label: 'Circle' },
+        { id: 'decoration-square', icon: Box, label: 'Square' },
+        { id: 'decoration-rectangle', icon: RectangleHorizontal, label: 'Rectangle' },
+      ]
+    }
   ] as const;
 
   const exportMap = (bbox?: { minX: number, minY: number, maxX: number, maxY: number }) => {
@@ -103,17 +161,40 @@ function App() {
   return (
     <div className="flex h-screen w-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
       {/* Left Sidebar - Tools */}
-      <div className="w-16 bg-white border-r border-slate-200 flex flex-col items-center py-4 gap-4 z-10 shadow-sm">
-        {tools.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTool(t.id as any)}
-            className={`p-3 rounded-xl transition-colors ${tool === t.id ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}
-            title={t.label}
-          >
-            <t.icon size={24} strokeWidth={2} />
-          </button>
-        ))}
+      <div className="w-16 bg-white border-r border-slate-200 flex flex-col items-center py-4 gap-2 z-10 shadow-sm relative">
+        {toolGroups.map(group => {
+          const isActiveGroup = group.tools.some(t => t.id === tool);
+          return (
+            <div key={group.id} className="relative tool-group w-full flex justify-center">
+              <button
+                onClick={() => setOpenMenu(openMenu === group.id ? null : group.id)}
+                className={`p-3 rounded-xl transition-colors flex-shrink-0 ${isActiveGroup ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}
+                title={group.label}
+              >
+                <group.icon size={24} strokeWidth={2} />
+              </button>
+              
+              {openMenu === group.id && (
+                <div className="absolute left-full top-0 ml-2 bg-white rounded-xl shadow-lg border border-slate-200 p-2 flex flex-col gap-1 z-50 min-w-[160px]">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 mb-1">{group.label}</div>
+                  {group.tools.map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => {
+                        setTool(t.id as any);
+                        setOpenMenu(null);
+                      }}
+                      className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm font-medium w-full text-left ${tool === t.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
+                    >
+                      <t.icon size={18} strokeWidth={2} className={tool === t.id ? 'text-indigo-600' : 'text-slate-400'} />
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
         
         <div className="mt-auto flex flex-col gap-2">
           <button 
@@ -149,8 +230,9 @@ function App() {
       </div>
 
       {/* Right Sidebar - Properties */}
-      <div className="w-64 bg-white border-l border-slate-200 p-4 flex flex-col z-10 shadow-sm">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-4">Properties</h2>
+      <div className="w-64 bg-white border-l border-slate-200 p-4 flex flex-col z-10 shadow-sm overflow-y-auto">
+        <h1 className="text-lg font-bold text-slate-900 tracking-tight mb-1">OSR Map Builder</h1>
+        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-6 pb-2 border-b border-slate-100">Properties</h2>
         
         <div className="space-y-4">
           <div>
