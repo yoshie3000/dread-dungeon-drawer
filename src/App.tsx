@@ -6,10 +6,12 @@ import PatternEditor from './components/PatternEditor';
 import { generateDysonSegments, segmentsToPath } from './utils/dysonGenerator';
 
 function App() {
-  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, showGrid, toggleGrid, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements } = useMapStore();
+  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, showGrid, toggleGrid, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement } = useMapStore();
 
   const [editingSlot, setEditingSlot] = useState<number | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [isHatchPanelOpen, setIsHatchPanelOpen] = useState(false);
+  const [isStairPanelOpen, setIsStairPanelOpen] = useState(false);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -257,153 +259,217 @@ function App() {
               max="200"
             />
           </div>
-          <div>
-            <label className="block text-sm text-slate-700 mb-1 mt-4">Hatch Style</label>
-            <select
-              value={hatchStyle}
-              onChange={(e) => setHatchStyle(e.target.value as any)}
-              className="w-full rounded border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border bg-white"
+          <div className="mt-6 border border-slate-200 rounded-md bg-white overflow-hidden">
+            <button 
+              onClick={() => setIsHatchPanelOpen(!isHatchPanelOpen)}
+              className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm transition-colors"
             >
-              <option value="dyson-hatch">Classic Cross-Hatch</option>
-              <option value="soft-border">Soft Border</option>
-              <option value="dyson-dynamic">Procedural Dyson</option>
-            </select>
+              <span>Hatch Properties</span>
+              <svg 
+                className={`w-4 h-4 transform transition-transform ${isHatchPanelOpen ? 'rotate-180' : ''}`} 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
             
-            {hatchStyle === 'soft-border' && (
-              <div className="mt-3">
-                <label className="block text-xs font-medium text-slate-500 mb-1">Border Color</label>
-                <div className="flex gap-2">
-                  {[
-                    { value: 'rgba(0,0,0,0.625)', bg: 'bg-black' },
-                    { value: 'rgba(64,64,64,0.625)', bg: 'bg-stone-700' },
-                    { value: 'rgba(160,160,160,0.625)', bg: 'bg-stone-400' }
-                  ].map(color => (
-                    <button
-                      key={color.value}
-                      onClick={() => setSoftBorderColor(color.value)}
-                      className={`w-8 h-8 rounded-full border-2 ${color.bg} ${softBorderColor === color.value ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-transparent'}`}
-                      title={color.bg.replace('bg-', '')}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-          <div>
-            <label className="block text-sm text-slate-700 mb-1 mt-4">Hatch Density ({hatchDensity})</label>
-            <input 
-              type="range" 
-              className="w-full" 
-              value={hatchDensity}
-              onChange={(e) => setHatchDensity(Number(e.target.value))}
-              min="10"
-              max="200"
-              step="10"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-slate-700 mb-1 mt-4">Hatch Max Width ({(hatchWidth * 100).toFixed(0)}%)</label>
-            <input 
-              type="range" 
-              className="w-full" 
-              value={hatchWidth}
-              onChange={(e) => setHatchWidth(Number(e.target.value))}
-              min="0.1"
-              max="0.5"
-              step="0.05"
-            />
-          </div>
-          <div className="mt-4 flex flex-col gap-2">
-            <div className="flex items-center">
-              <input 
-                type="checkbox" 
-                id="hatch-organic"
-                checked={hatchOrganic}
-                onChange={(e) => setHatchOrganic(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
-              />
-              <label htmlFor="hatch-organic" className="ml-2 block text-sm text-slate-700">
-                Organic Boundary (10% - Max)
-              </label>
-            </div>
-            
-            {hatchOrganic && (
-              <div className="ml-6 mt-2 p-3 bg-slate-50 border border-slate-200 rounded-md">
-                <div className="flex justify-between items-center mb-1">
-                  <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Smoothness</label>
-                  <span className="text-xs text-slate-500 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">{hatchSmoothness}</span>
-                </div>
-                <input 
-                  type="range" 
-                  className="w-full accent-indigo-500" 
-                  value={hatchSmoothness}
-                  onChange={(e) => setHatchSmoothness(Number(e.target.value))}
-                  min="0"
-                  max="100"
-                  step="5"
-                />
-                <div className="flex justify-between text-[10px] text-slate-400 mt-1 uppercase font-medium">
-                  <span>Blocky</span>
-                  <span>Smooth</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {hatchStyle === 'dyson-dynamic' || hatchStyle.startsWith('saved-') ? (
-            <div className="mt-6 border-t pt-4">
-              <h3 className="text-sm font-semibold text-slate-800 mb-2">Dyson Pattern Studio</h3>
-              <div className="bg-slate-100 rounded-md p-2 mb-4 border border-slate-200 text-center">
-                <span className="text-xs text-slate-500 block mb-1">Current Dynamic Pattern</span>
-                <svg width="100" height="100" viewBox={`0 0 ${gridSize} ${gridSize}`} className="mx-auto bg-white border border-slate-300">
-                  <path d={segmentsToPath(dynamicSegments)} stroke="black" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-                </svg>
-                <button 
-                  onClick={() => setDynamicSegments(generateDysonSegments(gridSize, hatchDensity))}
-                  className="mt-2 text-xs text-indigo-600 hover:text-indigo-800"
-                >
-                  Regenerate
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                {[0, 1, 2, 3].map(i => {
-                  const pattern = savedPatterns[i];
-                  return (
-                    <div key={`slot-${i}`} className={`p-2 rounded border flex flex-col items-center ${hatchStyle === `saved-${i}` ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white'}`}>
-                      <div className="text-xs font-medium text-slate-600 mb-1 flex items-center justify-between w-full">
-                        <span>Slot {i + 1}</span>
-                        {hatchStyle === `saved-${i}` && <span className="text-[10px] text-indigo-600 font-bold">ACTIVE</span>}
+            <div className={`transition-all duration-200 ease-in-out ${isHatchPanelOpen ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+              <div className="p-4 border-t border-slate-200">
+                <div>
+                  <label className="block text-sm text-slate-700 mb-1">Hatch Style</label>
+                  <select
+                    value={hatchStyle}
+                    onChange={(e) => setHatchStyle(e.target.value as any)}
+                    className="w-full rounded border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border bg-white"
+                  >
+                    <option value="dyson-hatch">Classic Cross-Hatch</option>
+                    <option value="soft-border">Soft Border</option>
+                    <option value="dyson-dynamic">Procedural Dyson</option>
+                  </select>
+                  
+                  {hatchStyle === 'soft-border' && (
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Border Color</label>
+                      <div className="flex gap-2">
+                        {[
+                          { value: 'rgba(0,0,0,0.625)', bg: 'bg-black' },
+                          { value: 'rgba(64,64,64,0.625)', bg: 'bg-stone-700' },
+                          { value: 'rgba(160,160,160,0.625)', bg: 'bg-stone-400' }
+                        ].map(color => (
+                          <button
+                            key={color.value}
+                            onClick={() => setSoftBorderColor(color.value)}
+                            className={`w-8 h-8 rounded-full border-2 ${color.bg} ${softBorderColor === color.value ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-transparent'}`}
+                            title={color.bg.replace('bg-', '')}
+                          />
+                        ))}
                       </div>
-                      {pattern ? (
-                        <>
-                          <svg width="60" height="60" viewBox={`0 0 ${gridSize} ${gridSize}`} className="bg-white border border-slate-200 mb-2 cursor-pointer hover:border-indigo-400" onClick={() => setHatchStyle(`saved-${i}`)}>
-                            <path d={segmentsToPath(pattern)} stroke="black" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-                          </svg>
-                          <div className="flex gap-1 w-full">
-                            <button onClick={() => setEditingSlot(i)} className="flex-1 py-1 text-[10px] bg-slate-100 hover:bg-slate-200 rounded text-slate-600 transition-colors">Edit</button>
-                            <button onClick={() => {
-                              setSavedPattern(i, null);
-                              if (hatchStyle === `saved-${i}`) setHatchStyle('dyson-dynamic');
-                            }} className="flex-1 py-1 text-[10px] bg-red-50 hover:bg-red-100 rounded text-red-600 transition-colors">Clear</button>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="flex-1 flex items-center justify-center w-full h-[60px] border border-dashed border-slate-300 rounded mb-2 bg-slate-50 hover:bg-slate-100 transition-colors">
-                          <button 
-                            onClick={() => setSavedPattern(i, dynamicSegments)}
-                            className="text-[10px] text-slate-500 hover:text-indigo-600 font-medium w-full h-full"
-                          >
-                            Save Here
-                          </button>
-                        </div>
-                      )}
                     </div>
-                  )
-                })}
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-700 mb-1 mt-4">Hatch Density ({hatchDensity})</label>
+                  <input 
+                    type="range" 
+                    className="w-full" 
+                    value={hatchDensity}
+                    onChange={(e) => setHatchDensity(Number(e.target.value))}
+                    min="10"
+                    max="200"
+                    step="10"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-700 mb-1 mt-4">Hatch Max Width ({(hatchWidth * 100).toFixed(0)}%)</label>
+                  <input 
+                    type="range" 
+                    className="w-full" 
+                    value={hatchWidth}
+                    onChange={(e) => setHatchWidth(Number(e.target.value))}
+                    min="0.1"
+                    max="0.5"
+                    step="0.05"
+                  />
+                </div>
+                <div className="mt-4 flex flex-col gap-2">
+                  <div className="flex items-center">
+                    <input 
+                      type="checkbox" 
+                      id="hatch-organic"
+                      checked={hatchOrganic}
+                      onChange={(e) => setHatchOrganic(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+                    />
+                    <label htmlFor="hatch-organic" className="ml-2 block text-sm text-slate-700">
+                      Organic Boundary (10% - Max)
+                    </label>
+                  </div>
+                  
+                  {hatchOrganic && (
+                    <div className="ml-6 mt-2 p-3 bg-slate-50 border border-slate-200 rounded-md">
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Smoothness</label>
+                        <span className="text-xs text-slate-500 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">{hatchSmoothness}</span>
+                      </div>
+                      <input 
+                        type="range" 
+                        className="w-full accent-indigo-500" 
+                        value={hatchSmoothness}
+                        onChange={(e) => setHatchSmoothness(Number(e.target.value))}
+                        min="0"
+                        max="100"
+                        step="5"
+                      />
+                      <div className="flex justify-between text-[10px] text-slate-400 mt-1 uppercase font-medium">
+                        <span>Blocky</span>
+                        <span>Smooth</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {hatchStyle === 'dyson-dynamic' || hatchStyle.startsWith('saved-') ? (
+                  <div className="mt-6 border-t pt-4">
+                    <h3 className="text-sm font-semibold text-slate-800 mb-2">Dyson Pattern Studio</h3>
+                    <div className="bg-slate-100 rounded-md p-2 mb-4 border border-slate-200 text-center">
+                      <span className="text-xs text-slate-500 block mb-1">Current Dynamic Pattern</span>
+                      <svg width="100" height="100" viewBox={`0 0 ${gridSize} ${gridSize}`} className="mx-auto bg-white border border-slate-300">
+                        <path d={segmentsToPath(dynamicSegments)} stroke="black" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+                      </svg>
+                      <button 
+                        onClick={() => setDynamicSegments(generateDysonSegments(gridSize, hatchDensity))}
+                        className="mt-2 text-xs text-indigo-600 hover:text-indigo-800"
+                      >
+                        Regenerate
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      {[0, 1, 2, 3].map(i => {
+                        const pattern = savedPatterns[i];
+                        return (
+                          <div key={`slot-${i}`} className={`p-2 rounded border flex flex-col items-center ${hatchStyle === `saved-${i}` ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white'}`}>
+                            <div className="text-xs font-medium text-slate-600 mb-1 flex items-center justify-between w-full">
+                              <span>Slot {i + 1}</span>
+                              {hatchStyle === `saved-${i}` && <span className="text-[10px] text-indigo-600 font-bold">ACTIVE</span>}
+                            </div>
+                            {pattern ? (
+                              <>
+                                <svg width="60" height="60" viewBox={`0 0 ${gridSize} ${gridSize}`} className="bg-white border border-slate-200 mb-2 cursor-pointer hover:border-indigo-400" onClick={() => setHatchStyle(`saved-${i}`)}>
+                                  <path d={segmentsToPath(pattern)} stroke="black" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+                                </svg>
+                                <div className="flex gap-1 w-full">
+                                  <button onClick={() => setEditingSlot(i)} className="flex-1 py-1 text-[10px] bg-slate-100 hover:bg-slate-200 rounded text-slate-600 transition-colors">Edit</button>
+                                  <button onClick={() => {
+                                    setSavedPattern(i, null);
+                                    if (hatchStyle === `saved-${i}`) setHatchStyle('dyson-dynamic');
+                                  }} className="flex-1 py-1 text-[10px] bg-red-50 hover:bg-red-100 rounded text-red-600 transition-colors">Clear</button>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="flex-1 flex items-center justify-center w-full h-[60px] border border-dashed border-slate-300 rounded mb-2 bg-slate-50 hover:bg-slate-100 transition-colors">
+                                <button 
+                                  onClick={() => setSavedPattern(i, dynamicSegments)}
+                                  className="text-[10px] text-slate-500 hover:text-indigo-600 font-medium w-full h-full"
+                                >
+                                  Save Here
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
-          ) : null}
+          </div>
+
+          <div className="mt-6 border border-slate-200 rounded-md bg-white overflow-hidden">
+            <button 
+              onClick={() => setIsStairPanelOpen(!isStairPanelOpen)}
+              className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm transition-colors"
+            >
+              <span>Stair Properties</span>
+              <svg 
+                className={`w-4 h-4 transform transition-transform ${isStairPanelOpen ? 'rotate-180' : ''}`} 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            
+            <div className={`transition-all duration-200 ease-in-out ${isStairPanelOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+              <div className="p-4 border-t border-slate-200">
+                <div>
+                  <label className="block text-sm text-slate-700 mb-1 mt-2">
+                    Quantity of Steps ({(elements.find(el => selectedElementIds.length === 1 && selectedElementIds[0] === el.id && el.type.startsWith('stair'))?.properties?.stairSteps ?? stairSteps)})
+                  </label>
+                  <input 
+                    type="range" 
+                    className="w-full" 
+                    value={(elements.find(el => selectedElementIds.length === 1 && selectedElementIds[0] === el.id && el.type.startsWith('stair'))?.properties?.stairSteps ?? stairSteps)}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setStairSteps(val);
+                      const selectedStairs = elements.filter(el => selectedElementIds.includes(el.id) && el.type.startsWith('stair'));
+                      selectedStairs.forEach(stair => {
+                         updateElement(stair.id, { properties: { ...stair.properties, stairSteps: val } });
+                      });
+                    }}
+                    min="4"
+                    max="20"
+                    step="1"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
 
         </div>
       </div>

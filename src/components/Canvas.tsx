@@ -25,7 +25,7 @@ function getRoughPath(drawable: any): string {
 import type { MapElement } from '../store';
 
 const getClickedElement = (rawPoint: Point, elements: MapElement[]) => {
-  const areaTools = ['room', 'interior', 'fill', 'unfill'];
+  const areaTools = ['room', 'interior', 'fill', 'unfill', 'decoration-square', 'decoration-circle', 'decoration-rectangle'];
   
   return [...elements].reverse().find(el => {
     if (areaTools.includes(el.type)) {
@@ -73,6 +73,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     hatchWidth,
     hatchOrganic,
     hatchSmoothness,
+    stairSteps,
     dynamicSegments,
     savedPatterns,
     selectedElementIds,
@@ -126,7 +127,6 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     if (e.button === 0) {
       if (tool === 'select') {
         const rawPoint = getMapCoordinates(e);
-        const snappedPoint = snapToGrid(rawPoint);
         const clickedEl = getClickedElement(rawPoint, elements);
         
         if (clickedEl) {
@@ -152,7 +152,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
             setSelectedElementIds([clickedEl.id]);
           }
           setIsDraggingSelection(true);
-          setDragStartPoint(snappedPoint);
+          setDragStartPoint(rawPoint);
           setDragOffset({ dx: 0, dy: 0 });
         } else {
           setSelectedElementIds([]);
@@ -196,17 +196,18 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
         if (origWidth > 0 && origHeight > 0) {
           const mouseDist = Math.hypot(snappedPoint.x - minX, snappedPoint.y - minY);
           const origDist = Math.hypot(origWidth, origHeight);
-          setResizeScale(Math.max(mouseDist / origDist, 0.1));
+          const minScale = Math.max((gridSize / 2) / origWidth, (gridSize / 2) / origHeight);
+          setResizeScale(Math.max(mouseDist / origDist, minScale));
         }
       }
       return;
     }
 
     if (isDraggingSelection) {
-      const snappedPoint = snapToGrid(getMapCoordinates(e));
+      const currentRaw = getMapCoordinates(e);
       setDragOffset({
-        dx: snappedPoint.x - dragStartPoint.x,
-        dy: snappedPoint.y - dragStartPoint.y
+        dx: Math.round((currentRaw.x - dragStartPoint.x) / gridSize) * gridSize,
+        dy: Math.round((currentRaw.y - dragStartPoint.y) / gridSize) * gridSize
       });
       return;
     }
@@ -233,8 +234,8 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
             const minX = Math.min(...el.points.map(p => p.x));
             const minY = Math.min(...el.points.map(p => p.y));
             const newPoints = el.points.map(p => ({
-              x: Math.round((minX + (p.x - minX) * resizeScale) / gridSize) * gridSize,
-              y: Math.round((minY + (p.y - minY) * resizeScale) / gridSize) * gridSize
+              x: Math.round((minX + (p.x - minX) * resizeScale) / (gridSize / 2)) * (gridSize / 2),
+              y: Math.round((minY + (p.y - minY) * resizeScale) / (gridSize / 2)) * (gridSize / 2)
             }));
             
             let newProperties = el.properties;
@@ -244,8 +245,8 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                  ...el.properties,
                  pivot: { x: minX + (el.properties.pivot.x - minX) * scale, y: minY + (el.properties.pivot.y - minY) * scale },
                  originalPoints: el.properties.originalPoints?.map((p: Point) => ({
-                   x: Math.round((minX + (p.x - minX) * scale) / gridSize) * gridSize,
-                   y: Math.round((minY + (p.y - minY) * scale) / gridSize) * gridSize
+                   x: Math.round((minX + (p.x - minX) * scale) / (gridSize / 2)) * (gridSize / 2),
+                   y: Math.round((minY + (p.y - minY) * scale) / (gridSize / 2)) * (gridSize / 2)
                  }))
                };
             }
@@ -481,111 +482,119 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
   const scaledGridSize = gridSize * viewState.zoom;
 
   // --- MERGE ROOM WALLS ---
-  const hWalls: Record<number, {start: number, end: number}[]> = {};
-  const vWalls: Record<number, {start: number, end: number}[]> = {};
+  const { mergedLines, mergedRoughPaths } = React.useMemo(() => {
+    const hWalls: Record<number, {start: number, end: number}[]> = {};
+    const vWalls: Record<number, {start: number, end: number}[]> = {};
 
-  const maskVolumes = elements.filter(el => el.type === 'room' || el.type === 'interior');
+    const maskVolumes = elements.filter(el => el.type === 'room' || el.type === 'interior');
 
-  elements.filter(el => el.type === 'room').forEach(r => {
-    const minX = Math.min(r.points[0].x, r.points[1].x);
-    const maxX = Math.max(r.points[0].x, r.points[1].x);
-    const minY = Math.min(r.points[0].y, r.points[1].y);
-    const maxY = Math.max(r.points[0].y, r.points[1].y);
+    elements.filter(el => el.type === 'room').forEach(r => {
+      const minX = Math.min(r.points[0].x, r.points[1].x);
+      const maxX = Math.max(r.points[0].x, r.points[1].x);
+      const minY = Math.min(r.points[0].y, r.points[1].y);
+      const maxY = Math.max(r.points[0].y, r.points[1].y);
 
-    if (maxX > minX && maxY > minY) {
-      if (!hWalls[minY]) hWalls[minY] = [];
-      hWalls[minY].push({start: minX, end: maxX});
-      
-      if (!hWalls[maxY]) hWalls[maxY] = [];
-      hWalls[maxY].push({start: minX, end: maxX});
+      if (maxX > minX && maxY > minY) {
+        if (!hWalls[minY]) hWalls[minY] = [];
+        hWalls[minY].push({start: minX, end: maxX});
+        
+        if (!hWalls[maxY]) hWalls[maxY] = [];
+        hWalls[maxY].push({start: minX, end: maxX});
 
-      if (!vWalls[minX]) vWalls[minX] = [];
-      vWalls[minX].push({start: minY, end: maxY});
-      
-      if (!vWalls[maxX]) vWalls[maxX] = [];
-      vWalls[maxX].push({start: minY, end: maxY});
-    }
-  });
-
-  Object.keys(hWalls).forEach(yStr => {
-    const y = Number(yStr);
-    let intervals = hWalls[y];
-    
-    maskVolumes.forEach(vol => {
-      const minX = Math.min(vol.points[0].x, vol.points[1].x);
-      const maxX = Math.max(vol.points[0].x, vol.points[1].x);
-      const minY = Math.min(vol.points[0].y, vol.points[1].y);
-      const maxY = Math.max(vol.points[0].y, vol.points[1].y);
-      
-      if (minY < y && y < maxY) {
-        const newIntervals: {start: number, end: number}[] = [];
-        intervals.forEach(int => {
-          if (maxX <= int.start || minX >= int.end) {
-            newIntervals.push(int);
-          } else {
-            if (int.start < minX) newIntervals.push({start: int.start, end: minX});
-            if (int.end > maxX) newIntervals.push({start: maxX, end: int.end});
-          }
-        });
-        intervals = newIntervals;
+        if (!vWalls[minX]) vWalls[minX] = [];
+        vWalls[minX].push({start: minY, end: maxY});
+        
+        if (!vWalls[maxX]) vWalls[maxX] = [];
+        vWalls[maxX].push({start: minY, end: maxY});
       }
     });
-    hWalls[y] = intervals;
-  });
 
-  Object.keys(vWalls).forEach(xStr => {
-    const x = Number(xStr);
-    let intervals = vWalls[x];
-    
-    maskVolumes.forEach(vol => {
-      const minX = Math.min(vol.points[0].x, vol.points[1].x);
-      const maxX = Math.max(vol.points[0].x, vol.points[1].x);
-      const minY = Math.min(vol.points[0].y, vol.points[1].y);
-      const maxY = Math.max(vol.points[0].y, vol.points[1].y);
+    Object.keys(hWalls).forEach(yStr => {
+      const y = Number(yStr);
+      let intervals = hWalls[y];
       
-      if (minX < x && x < maxX) {
-        const newIntervals: {start: number, end: number}[] = [];
-        intervals.forEach(int => {
-          if (maxY <= int.start || minY >= int.end) {
-            newIntervals.push(int);
-          } else {
-            if (int.start < minY) newIntervals.push({start: int.start, end: minY});
-            if (int.end > maxY) newIntervals.push({start: maxY, end: int.end});
-          }
-        });
-        intervals = newIntervals;
-      }
+      maskVolumes.forEach(vol => {
+        const minX = Math.min(vol.points[0].x, vol.points[1].x);
+        const maxX = Math.max(vol.points[0].x, vol.points[1].x);
+        const minY = Math.min(vol.points[0].y, vol.points[1].y);
+        const maxY = Math.max(vol.points[0].y, vol.points[1].y);
+        
+        if (minY < y && y < maxY) {
+          const newIntervals: {start: number, end: number}[] = [];
+          intervals.forEach(int => {
+            if (maxX <= int.start || minX >= int.end) {
+              newIntervals.push(int);
+            } else {
+              if (int.start < minX) newIntervals.push({start: int.start, end: minX});
+              if (int.end > maxX) newIntervals.push({start: maxX, end: int.end});
+            }
+          });
+          intervals = newIntervals;
+        }
+      });
+      hWalls[y] = intervals;
     });
-    vWalls[x] = intervals;
-  });
 
-  const mergeIntervals = (intervals: {start: number, end: number}[]) => {
-    if (intervals.length === 0) return [];
-    intervals.sort((a, b) => a.start - b.start);
-    const merged = [intervals[0]];
-    for (let i = 1; i < intervals.length; i++) {
-      const last = merged[merged.length - 1];
-      const curr = intervals[i];
-      if (curr.start <= last.end) {
-        last.end = Math.max(last.end, curr.end);
-      } else {
-        merged.push(curr);
+    Object.keys(vWalls).forEach(xStr => {
+      const x = Number(xStr);
+      let intervals = vWalls[x];
+      
+      maskVolumes.forEach(vol => {
+        const minX = Math.min(vol.points[0].x, vol.points[1].x);
+        const maxX = Math.max(vol.points[0].x, vol.points[1].x);
+        const minY = Math.min(vol.points[0].y, vol.points[1].y);
+        const maxY = Math.max(vol.points[0].y, vol.points[1].y);
+        
+        if (minX < x && x < maxX) {
+          const newIntervals: {start: number, end: number}[] = [];
+          intervals.forEach(int => {
+            if (maxY <= int.start || minY >= int.end) {
+              newIntervals.push(int);
+            } else {
+              if (int.start < minY) newIntervals.push({start: int.start, end: minY});
+              if (int.end > maxY) newIntervals.push({start: maxY, end: int.end});
+            }
+          });
+          intervals = newIntervals;
+        }
+      });
+      vWalls[x] = intervals;
+    });
+
+    const mergeIntervals = (intervals: {start: number, end: number}[]) => {
+      if (intervals.length === 0) return [];
+      intervals.sort((a, b) => a.start - b.start);
+      const merged = [intervals[0]];
+      for (let i = 1; i < intervals.length; i++) {
+        const last = merged[merged.length - 1];
+        const curr = intervals[i];
+        if (curr.start <= last.end) {
+          last.end = Math.max(last.end, curr.end);
+        } else {
+          merged.push(curr);
+        }
       }
-    }
-    return merged.filter(i => i.end > i.start);
-  };
+      return merged.filter(i => i.end > i.start);
+    };
 
-  const mergedLines: {x1: number, y1: number, x2: number, y2: number}[] = [];
-  Object.keys(hWalls).forEach(yStr => {
-    const y = Number(yStr);
-    mergeIntervals(hWalls[y]).forEach(int => mergedLines.push({x1: int.start, y1: y, x2: int.end, y2: y}));
-  });
-  Object.keys(vWalls).forEach(xStr => {
-    const x = Number(xStr);
-    mergeIntervals(vWalls[x]).forEach(int => mergedLines.push({x1: x, y1: int.start, x2: x, y2: int.end}));
-  });
+    const mLines: {x1: number, y1: number, x2: number, y2: number}[] = [];
+    Object.keys(hWalls).forEach(yStr => {
+      const y = Number(yStr);
+      mergeIntervals(hWalls[y]).forEach(int => mLines.push({x1: int.start, y1: y, x2: int.end, y2: y}));
+    });
+    Object.keys(vWalls).forEach(xStr => {
+      const x = Number(xStr);
+      mergeIntervals(vWalls[x]).forEach(int => mLines.push({x1: x, y1: int.start, x2: x, y2: int.end}));
+    });
 
-  const mergedRoughPaths = mergedLines.map(line => getRoughPath(generator.line(line.x1, line.y1, line.x2, line.y2, { roughness: 1.5, strokeWidth: 2.5 })));
+    // Provide a consistent seed to RoughJS based on the coordinates to stop it from shaking
+    const mPaths = mLines.map((line, i) => {
+      const seed = Math.abs(Math.floor(line.x1 + line.y1 + line.x2 + line.y2 + i)) || 1;
+      return getRoughPath(generator.line(line.x1, line.y1, line.x2, line.y2, { roughness: 1.5, strokeWidth: 2.5, seed }));
+    });
+
+    return { mergedLines: mLines, mergedRoughPaths: mPaths };
+  }, [elements]);
   // --------------------------
 
   const dysonDynamicPath = React.useMemo(() => {
@@ -844,8 +853,9 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
               
               if (el.type === 'stair') {
                 const lines = [];
-                const stepSize = 10;
                 const maxShrink = isVertical ? (fullW * 0.25) : (fullH * 0.25);
+                const currentSteps = el.properties?.stairSteps ?? stairSteps;
+                const stepSize = isVertical ? fullH / currentSteps : fullW / currentSteps;
                 
                 let pointsStr = '';
                 if (isVertical) {
@@ -876,9 +886,10 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 );
               } else if (el.type === 'stair-depth') {
                 const lines = [];
+                const currentSteps = el.properties?.stairSteps ?? stairSteps;
                 if (isVertical) {
                   const dir = start.y < end.y ? 1 : -1;
-                  const numSteps = Math.max(2, Math.floor(fullH / 10));
+                  const numSteps = Math.max(2, currentSteps);
                   const a = fullH / (0.6 * numSteps);
                   const d = (0.8 * a) / (numSteps - 1);
                   let currentY = start.y;
@@ -890,7 +901,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                   }
                 } else {
                   const dir = start.x < end.x ? 1 : -1;
-                  const numSteps = Math.max(2, Math.floor(fullW / 10));
+                  const numSteps = Math.max(2, currentSteps);
                   const a = fullW / (0.6 * numSteps);
                   const d = (0.8 * a) / (numSteps - 1);
                   let currentX = start.x;
@@ -916,7 +927,8 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 if (isVertical) {
                   pointsStr = `${minX},${start.y} ${maxX},${start.y} ${maxX - maxShrink},${end.y} ${minX + maxShrink},${end.y}`;
                   const dir = start.y < end.y ? 1 : -1;
-                  const numSteps = Math.max(2, Math.floor(fullH / 10));
+                  const currentSteps = el.properties?.stairSteps ?? stairSteps;
+                  const numSteps = Math.max(2, currentSteps);
                   const a = fullH / (0.6 * numSteps);
                   const d = (0.8 * a) / (numSteps - 1);
                   let currentY = start.y;
@@ -931,7 +943,8 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 } else {
                   pointsStr = `${start.x},${minY} ${start.x},${maxY} ${end.x},${maxY - maxShrink} ${end.x},${minY + maxShrink}`;
                   const dir = start.x < end.x ? 1 : -1;
-                  const numSteps = Math.max(2, Math.floor(fullW / 10));
+                  const currentSteps = el.properties?.stairSteps ?? stairSteps;
+                  const numSteps = Math.max(2, currentSteps);
                   const a = fullW / (0.6 * numSteps);
                   const d = (0.8 * a) / (numSteps - 1);
                   let currentX = start.x;
@@ -1013,7 +1026,11 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           ))}
           {renderedElements.map((el: MapElement) => {
             if (el.type === 'wall') {
-              const drawable = generator.line(el.points[0].x, el.points[0].y, el.points[1].x, el.points[1].y, { roughness: 1.5, strokeWidth: 2.5 });
+              const seedStr = el.id.toString();
+              let hash = 0;
+              for (let i = 0; i < seedStr.length; i++) hash = Math.imul(31, hash) + seedStr.charCodeAt(i) | 0;
+              const seed = Math.abs(hash) || 1;
+              const drawable = generator.line(el.points[0].x, el.points[0].y, el.points[1].x, el.points[1].y, { roughness: 1.5, strokeWidth: 2.5, seed });
               const path = getRoughPath(drawable);
               return <path key={`wall-${el.id}`} d={path} className="dyson-wall" fill="none" />;
             }
@@ -1179,7 +1196,8 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                   fill="#3b82f6" 
                   stroke="white" 
                   strokeWidth="1.5"
-                  pointerEvents="none"
+                  pointerEvents="all"
+                  className="cursor-nwse-resize hover:fill-indigo-400 hover:stroke-indigo-600 transition-colors"
                 />
               )}
             </g>

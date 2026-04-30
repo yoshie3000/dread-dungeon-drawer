@@ -31,6 +31,8 @@ interface MapState {
   setHatchOrganic: (organic: boolean) => void;
   hatchSmoothness: number;
   setHatchSmoothness: (smoothness: number) => void;
+  stairSteps: number;
+  setStairSteps: (steps: number) => void;
   savedPatterns: (Segment[] | null)[];
   setSavedPattern: (index: number, segments: Segment[] | null) => void;
   dynamicSegments: Segment[];
@@ -69,6 +71,8 @@ export const useMapStore = create<MapState>((set) => ({
   setHatchOrganic: (organic) => set({ hatchOrganic: organic }),
   hatchSmoothness: 50,
   setHatchSmoothness: (smoothness) => set({ hatchSmoothness: smoothness }),
+  stairSteps: 10,
+  setStairSteps: (stairSteps) => set({ stairSteps }),
   savedPatterns: [null, null, null, null],
   setSavedPattern: (index, segments) => set((state) => {
     const newPatterns = [...state.savedPatterns];
