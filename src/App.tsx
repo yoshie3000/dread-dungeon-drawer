@@ -6,7 +6,7 @@ import PatternEditor from './components/PatternEditor';
 import { generateDysonSegments, segmentsToPath } from './utils/dysonGenerator';
 
 function App() {
-  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, showGrid, toggleGrid, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement } = useMapStore();
+  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, snapToGrid, setSnapToGrid, showGrid, toggleGrid, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement } = useMapStore();
 
   const [editingSlot, setEditingSlot] = useState<number | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -146,8 +146,20 @@ function App() {
     const width = exportBBox.maxX - exportBBox.minX;
     const height = exportBBox.maxY - exportBBox.minY;
 
-    // Inject the correct viewBox and dimensions
-    source = source.replace(/^<svg([^>]*)>/, `<svg$1 viewBox="${exportBBox.minX} ${exportBBox.minY} ${width} ${height}" width="${width}" height="${height}">`);
+    // Convert rgba() to rgb() + opacity for better compatibility with SVG viewers like Illustrator
+    source = source.replace(/stroke="rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)"/g, 'stroke="rgb($1,$2,$3)" stroke-opacity="$4"');
+    source = source.replace(/fill="rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)"/g, 'fill="rgb($1,$2,$3)" fill-opacity="$4"');
+
+    // Inject styles that are defined in index.css so they carry over to the exported SVG file
+    const styleBlock = `
+      <style>
+        .dyson-wall { fill: none; stroke: #1a1a1a; stroke-width: 3px; stroke-linejoin: round; stroke-linecap: round; }
+        .dyson-grid { stroke: #e2e8f0; stroke-width: 1px; }
+      </style>
+    `;
+
+    // Inject the correct viewBox, dimensions, and style block
+    source = source.replace(/^<svg([^>]*)>/, `<svg$1 viewBox="${exportBBox.minX} ${exportBBox.minY} ${width} ${height}" width="${width}" height="${height}">${styleBlock}`);
 
     const blob = new Blob([source], {type: "image/svg+xml;charset=utf-8"});
     const url = URL.createObjectURL(blob);
@@ -246,6 +258,17 @@ function App() {
                  onChange={toggleGrid}
                />
                Show Grid
+             </label>
+          </div>
+          <div>
+             <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer mt-2">
+               <input 
+                 type="checkbox" 
+                 className="rounded text-indigo-600 focus:ring-indigo-500" 
+                 checked={snapToGrid}
+                 onChange={(e) => setSnapToGrid(e.target.checked)}
+               />
+               Snap to Grid
              </label>
           </div>
           <div>
