@@ -893,24 +893,58 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                   const a = fullH / (0.6 * numSteps);
                   const d = (0.8 * a) / (numSteps - 1);
                   let currentY = start.y;
-                  for (let i = 0; i < numSteps - 1; i++) {
-                    const stepDepth = a - i * d;
-                    currentY += stepDepth * dir;
-                    lines.push(<line key={`hs-${i}`} x1={minX} y1={currentY + 3.75 * dir} x2={maxX} y2={currentY + 3.75 * dir} stroke="rgba(0,0,0,0.15)" strokeWidth="6" />);
-                    lines.push(<line key={`h-${i}`} x1={minX} y1={currentY} x2={maxX} y2={currentY} stroke="black" strokeWidth="1.5" />);
+                  const stepLines = [];
+                  const shadowLines = [];
+                  for (let i = 0; i < numSteps; i++) {
+                    const prevY = currentY;
+                    if (i === numSteps - 1) {
+                      currentY = end.y;
+                    } else {
+                      const stepDepth = a - i * d;
+                      currentY += stepDepth * dir;
+                      stepLines.push(<line key={`hs-${i}`} x1={minX} y1={currentY + 3.75 * dir} x2={maxX} y2={currentY + 3.75 * dir} stroke="rgba(0,0,0,0.15)" strokeWidth="6" />);
+                      stepLines.push(<line key={`h-${i}`} x1={minX} y1={currentY} x2={maxX} y2={currentY} stroke="black" strokeWidth="1.5" />);
+                    }
+
+                    if (i >= 1) {
+                      const progress = i / (numSteps - 1);
+                      const opacity = 0.05 + (progress * 0.45);
+                      const shadowWidth = 6;
+                      const halfW = shadowWidth / 2;
+                      shadowLines.push(<line key={`sl-${i}`} x1={minX + halfW} y1={prevY} x2={minX + halfW} y2={currentY} stroke={`rgba(0,0,0,${opacity})`} strokeWidth={shadowWidth} />);
+                      shadowLines.push(<line key={`sr-${i}`} x1={maxX - halfW} y1={prevY} x2={maxX - halfW} y2={currentY} stroke={`rgba(0,0,0,${opacity})`} strokeWidth={shadowWidth} />);
+                    }
                   }
+                  lines.push(...shadowLines, ...stepLines);
                 } else {
                   const dir = start.x < end.x ? 1 : -1;
                   const numSteps = Math.max(2, currentSteps);
                   const a = fullW / (0.6 * numSteps);
                   const d = (0.8 * a) / (numSteps - 1);
                   let currentX = start.x;
-                  for (let i = 0; i < numSteps - 1; i++) {
-                    const stepDepth = a - i * d;
-                    currentX += stepDepth * dir;
-                    lines.push(<line key={`vs-${i}`} x1={currentX + 3.75 * dir} y1={minY} x2={currentX + 3.75 * dir} y2={maxY} stroke="rgba(0,0,0,0.15)" strokeWidth="6" />);
-                    lines.push(<line key={`v-${i}`} x1={currentX} y1={minY} x2={currentX} y2={maxY} stroke="black" strokeWidth="1.5" />);
+                  const stepLines = [];
+                  const shadowLines = [];
+                  for (let i = 0; i < numSteps; i++) {
+                    const prevX = currentX;
+                    if (i === numSteps - 1) {
+                      currentX = end.x;
+                    } else {
+                      const stepDepth = a - i * d;
+                      currentX += stepDepth * dir;
+                      stepLines.push(<line key={`vs-${i}`} x1={currentX + 3.75 * dir} y1={minY} x2={currentX + 3.75 * dir} y2={maxY} stroke="rgba(0,0,0,0.15)" strokeWidth="6" />);
+                      stepLines.push(<line key={`v-${i}`} x1={currentX} y1={minY} x2={currentX} y2={maxY} stroke="black" strokeWidth="1.5" />);
+                    }
+
+                    if (i >= 1) {
+                      const progress = i / (numSteps - 1);
+                      const opacity = 0.05 + (progress * 0.45);
+                      const shadowWidth = 6;
+                      const halfW = shadowWidth / 2;
+                      shadowLines.push(<line key={`st-${i}`} x1={prevX} y1={minY + halfW} x2={currentX} y2={minY + halfW} stroke={`rgba(0,0,0,${opacity})`} strokeWidth={shadowWidth} />);
+                      shadowLines.push(<line key={`sb-${i}`} x1={prevX} y1={maxY - halfW} x2={currentX} y2={maxY - halfW} stroke={`rgba(0,0,0,${opacity})`} strokeWidth={shadowWidth} />);
+                    }
                   }
+                  lines.push(...shadowLines, ...stepLines);
                 }
                 
                 return (
