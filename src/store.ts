@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { Segment } from './utils/dysonGenerator'
 
 export type ElementType = 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective';
-export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'door-double' | 'door-secret' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete' | 'export-region' | 'rotate' | 'decoration-square' | 'decoration-circle' | 'decoration-rectangle';
+export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'door-double' | 'door-secret' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete' | 'export-region' | 'export-tile' | 'rotate' | 'decoration-square' | 'decoration-circle' | 'decoration-rectangle';
 
 export interface Point {
   x: number;
@@ -33,6 +33,8 @@ interface MapState {
   setHatchSmoothness: (smoothness: number) => void;
   stairSteps: number;
   setStairSteps: (steps: number) => void;
+  snapToGrid: boolean;
+  setSnapToGrid: (snap: boolean) => void;
   savedPatterns: (Segment[] | null)[];
   setSavedPattern: (index: number, segments: Segment[] | null) => void;
   dynamicSegments: Segment[];
@@ -73,6 +75,8 @@ export const useMapStore = create<MapState>((set) => ({
   setHatchSmoothness: (smoothness) => set({ hatchSmoothness: smoothness }),
   stairSteps: 10,
   setStairSteps: (stairSteps) => set({ stairSteps }),
+  snapToGrid: true,
+  setSnapToGrid: (snap) => set({ snapToGrid: snap }),
   savedPatterns: [null, null, null, null],
   setSavedPattern: (index, segments) => set((state) => {
     const newPatterns = [...state.savedPatterns];
@@ -112,14 +116,14 @@ export const useMapStore = create<MapState>((set) => ({
     const previous = newPast.pop()!;
     return {
       pastElements: newPast,
-      futureElements: [state.elements, ...state.futureElements],
+      futureElements: [...state.futureElements, state.elements],
       elements: previous
     };
   }),
   redo: () => set((state) => {
     if (state.futureElements.length === 0) return state;
     const newFuture = [...state.futureElements];
-    const next = newFuture.shift()!;
+    const next = newFuture.pop()!;
     return {
       pastElements: [...state.pastElements, state.elements],
       futureElements: newFuture,

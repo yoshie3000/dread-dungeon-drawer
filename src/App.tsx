@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useMapStore } from './store';
-import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download, Undo2, Redo2, Crop, RotateCw, Columns, EyeOff, Circle, Box, RectangleHorizontal, Shapes } from 'lucide-react';
+import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download, Undo2, Redo2, Crop, RotateCw, Columns, EyeOff, Circle, Box, RectangleHorizontal, Shapes, Grid } from 'lucide-react';
 import Canvas from './components/Canvas';
 import PatternEditor from './components/PatternEditor';
 import { generateDysonSegments, segmentsToPath } from './utils/dysonGenerator';
 
 function App() {
-  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, showGrid, toggleGrid, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement } = useMapStore();
+  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, snapToGrid, setSnapToGrid, showGrid, toggleGrid, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement } = useMapStore();
+
+  const exportTileEl = elements.find(el => el.type === 'export-tile');
+  const exportTile = exportTileEl ? exportTileEl.points[0] : null;
 
   const [editingSlot, setEditingSlot] = useState<number | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -53,6 +56,7 @@ function App() {
         { id: 'delete', icon: Trash2, label: 'Erase Area' },
         { id: 'rotate', icon: RotateCw, label: 'Rotate' },
         { id: 'export-region', icon: Crop, label: 'Export Region' },
+        { id: 'export-tile', icon: Grid, label: 'Mark Tile' },
       ]
     },
     {
@@ -110,16 +114,6 @@ function App() {
     const svg = document.getElementById('map-svg');
     if (!svg) return;
     
-    const serializer = new XMLSerializer();
-    let source = serializer.serializeToString(svg);
-    
-    if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
-        source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
-    }
-
-    // Strip the transform from the main container so it exports at original coordinates
-    source = source.replace(/<g id="map-container" transform="[^"]*">/, '<g id="map-container">');
-
     let exportBBox = bbox;
     if (!exportBBox) {
       if (elements.length === 0) {
@@ -146,8 +140,77 @@ function App() {
     const width = exportBBox.maxX - exportBBox.minX;
     const height = exportBBox.maxY - exportBBox.minY;
 
-    // Inject the correct viewBox and dimensions
-    source = source.replace(/^<svg([^>]*)>/, `<svg$1 viewBox="${exportBBox.minX} ${exportBBox.minY} ${width} ${height}" width="${width}" height="${height}">`);
+    // DOM Manipulation Approach
+    const svgCopy = svg.cloneNode(true) as SVGSVGElement;
+    
+    // 1. Remove all export-ignore UI elements
+    svgCopy.querySelectorAll('.export-ignore').forEach(el => el.remove());
+    
+    // 2. Remove Tailwind classes
+    svgCopy.removeAttribute('class');
+    
+    // 3. Set the strict viewBox and dimensions
+    svgCopy.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    svgCopy.setAttribute('viewBox', `${exportBBox.minX} ${exportBBox.minY} ${width} ${height}`);
+    svgCopy.setAttribute('width', `${width}px`);
+    svgCopy.setAttribute('height', `${height}px`);
+    svgCopy.setAttribute('style', 'background: transparent; overflow: hidden;');
+    
+    // 4. Clean up map container transform and apply clipPath
+    const mapContainer = svgCopy.querySelector('#map-container');
+    if (mapContainer) {
+      mapContainer.removeAttribute('transform');
+      mapContainer.setAttribute('clip-path', 'url(#export-crop)');
+    }
+    
+    // 5. Explicitly bound the global grid to the export box and fix its scale/offset
+    const gridRect = svgCopy.querySelector('rect[fill="url(#global-grid)"]');
+    if (gridRect) {
+      gridRect.setAttribute('x', exportBBox.minX.toString());
+      gridRect.setAttribute('y', exportBBox.minY.toString());
+      gridRect.setAttribute('width', width.toString());
+      gridRect.setAttribute('height', height.toString());
+    }
+    const globalGridPattern = svgCopy.querySelector('#global-grid');
+    if (globalGridPattern) {
+      globalGridPattern.setAttribute('width', '24');
+      globalGridPattern.setAttribute('height', '24');
+      globalGridPattern.setAttribute('x', '0');
+      globalGridPattern.setAttribute('y', '0');
+      const gridPath = globalGridPattern.querySelector('path');
+      if (gridPath) gridPath.setAttribute('d', 'M 24 0 L 0 0 0 24');
+    }
+
+    // 6. Inject the clipPath cleanly into <defs>
+    let defsEl = svgCopy.querySelector('defs');
+    if (!defsEl) {
+      defsEl = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+      svgCopy.insertBefore(defsEl, svgCopy.firstChild);
+    }
+    const clipPathEl = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
+    clipPathEl.setAttribute('id', 'export-crop');
+    const clipRectEl = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    clipRectEl.setAttribute('x', exportBBox.minX.toString());
+    clipRectEl.setAttribute('y', exportBBox.minY.toString());
+    clipRectEl.setAttribute('width', width.toString());
+    clipRectEl.setAttribute('height', height.toString());
+    clipPathEl.appendChild(clipRectEl);
+    defsEl.appendChild(clipPathEl);
+
+    // 7. Inject styles
+    const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    styleEl.textContent = `
+      .dyson-wall { fill: none; stroke: #1a1a1a; stroke-width: 3px; stroke-linejoin: round; stroke-linecap: round; }
+      .dyson-grid { stroke: #e2e8f0; stroke-width: 1px; }
+    `;
+    svgCopy.insertBefore(styleEl, svgCopy.firstChild);
+
+    const serializer = new XMLSerializer();
+    let source = serializer.serializeToString(svgCopy);
+
+    // Convert rgba() to rgb() + opacity for better compatibility with SVG viewers like Illustrator
+    source = source.replace(/stroke="rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)"/g, 'stroke="rgb($1,$2,$3)" stroke-opacity="$4"');
+    source = source.replace(/fill="rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)"/g, 'fill="rgb($1,$2,$3)" fill-opacity="$4"');
 
     const blob = new Blob([source], {type: "image/svg+xml;charset=utf-8"});
     const url = URL.createObjectURL(blob);
@@ -157,7 +220,6 @@ function App() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    setTool('select');
   };
 
   return (
@@ -216,13 +278,44 @@ function App() {
             <Redo2 size={24} strokeWidth={2} />
           </button>
           <div className="w-8 h-px bg-slate-200 mx-auto my-1"></div>
-          <button 
-            className="p-3 rounded-xl text-slate-500 hover:bg-slate-100"
-            title="Export Full Map SVG"
-            onClick={() => exportMap()}
-          >
-            <Download size={24} strokeWidth={2} />
-          </button>
+          <div className="relative tool-group w-full flex justify-center">
+            <button
+              onClick={() => setOpenMenu(openMenu === 'export' ? null : 'export')}
+              className={`p-3 rounded-xl transition-colors flex-shrink-0 text-slate-500 hover:bg-slate-100 ${openMenu === 'export' ? 'bg-slate-100 text-slate-900' : ''}`}
+              title="Export Options"
+            >
+              <Download size={24} strokeWidth={2} />
+            </button>
+            
+            {openMenu === 'export' && (
+              <div className="absolute left-full bottom-0 ml-2 bg-white rounded-xl shadow-lg border border-slate-200 p-2 flex flex-col gap-1 z-50 min-w-[160px]">
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 mb-1">Export</div>
+                <button
+                  onClick={() => {
+                    exportMap();
+                    setOpenMenu(null);
+                  }}
+                  className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm font-medium w-full text-left text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                >
+                  <Download size={18} strokeWidth={2} className="text-slate-400" />
+                  Full Map
+                </button>
+                <button
+                  onClick={() => {
+                    if (exportTile) {
+                      exportMap({ minX: exportTile.x, minY: exportTile.y, maxX: exportTile.x + 144, maxY: exportTile.y + 144 });
+                      setOpenMenu(null);
+                    }
+                  }}
+                  disabled={!exportTile}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm font-medium w-full text-left ${exportTile ? 'text-slate-600 hover:bg-slate-50 hover:text-slate-900' : 'text-slate-300 cursor-not-allowed'}`}
+                >
+                  <Grid size={18} strokeWidth={2} className={exportTile ? "text-slate-400" : "text-slate-300"} />
+                  Marked Tile
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -246,6 +339,17 @@ function App() {
                  onChange={toggleGrid}
                />
                Show Grid
+             </label>
+          </div>
+          <div>
+             <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer mt-2">
+               <input 
+                 type="checkbox" 
+                 className="rounded text-indigo-600 focus:ring-indigo-500" 
+                 checked={snapToGrid}
+                 onChange={(e) => setSnapToGrid(e.target.checked)}
+               />
+               Snap to Grid
              </label>
           </div>
           <div>

@@ -25,7 +25,7 @@ function getRoughPath(drawable: any): string {
 import type { MapElement } from '../store';
 
 const getClickedElement = (rawPoint: Point, elements: MapElement[]) => {
-  const areaTools = ['room', 'interior', 'fill', 'unfill', 'decoration-square', 'decoration-circle', 'decoration-rectangle'];
+  const areaTools = ['room', 'interior', 'fill', 'unfill', 'decoration-square', 'decoration-circle', 'decoration-rectangle', 'export-tile'];
   
   return [...elements].reverse().find(el => {
     if (areaTools.includes(el.type)) {
@@ -69,6 +69,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     showGrid,
     tool,
     hatchStyle,
+    hatchDensity,
     softBorderColor,
     hatchWidth,
     hatchOrganic,
@@ -77,7 +78,9 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     dynamicSegments,
     savedPatterns,
     selectedElementIds,
-    setSelectedElementIds
+    setSelectedElementIds,
+    snapToGrid,
+    setTool
   } = useMapStore();
   const svgRef = useRef<SVGSVGElement>(null);
   
@@ -110,7 +113,8 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     };
   };
 
-  const snapToGrid = (point: Point): Point => {
+  const getSnappedPoint = (point: Point): Point => {
+    if (!snapToGrid) return point;
     return {
       x: Math.round(point.x / gridSize) * gridSize,
       y: Math.round(point.y / gridSize) * gridSize
@@ -161,7 +165,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           setCurrentDrawPoint(rawPoint);
         }
       } else {
-        const point = snapToGrid(getMapCoordinates(e));
+        const point = getSnappedPoint(getMapCoordinates(e));
         setIsDrawing(true);
         setStartDrawPoint(point);
         setCurrentDrawPoint(point);
@@ -182,7 +186,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     }
 
     if (isResizing && resizeElementId) {
-      const snappedPoint = snapToGrid(getMapCoordinates(e));
+      const snappedPoint = getSnappedPoint(getMapCoordinates(e));
       const el = elements.find(el => el.id === resizeElementId);
       if (el) {
         const minX = Math.min(...el.points.map(p => p.x));
@@ -205,10 +209,17 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
 
     if (isDraggingSelection) {
       const currentRaw = getMapCoordinates(e);
-      setDragOffset({
-        dx: Math.round((currentRaw.x - dragStartPoint.x) / gridSize) * gridSize,
-        dy: Math.round((currentRaw.y - dragStartPoint.y) / gridSize) * gridSize
-      });
+      if (snapToGrid) {
+        setDragOffset({
+          dx: Math.round((currentRaw.x - dragStartPoint.x) / gridSize) * gridSize,
+          dy: Math.round((currentRaw.y - dragStartPoint.y) / gridSize) * gridSize
+        });
+      } else {
+        setDragOffset({
+          dx: currentRaw.x - dragStartPoint.x,
+          dy: currentRaw.y - dragStartPoint.y
+        });
+      }
       return;
     }
 
@@ -218,7 +229,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     }
 
     if (isDrawing) {
-      const point = snapToGrid(getMapCoordinates(e));
+      const point = getSnappedPoint(getMapCoordinates(e));
       setCurrentDrawPoint(point);
     }
   };
@@ -233,10 +244,18 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           if (el.id === resizeElementId) {
             const minX = Math.min(...el.points.map(p => p.x));
             const minY = Math.min(...el.points.map(p => p.y));
-            const newPoints = el.points.map(p => ({
-              x: Math.round((minX + (p.x - minX) * resizeScale) / (gridSize / 2)) * (gridSize / 2),
-              y: Math.round((minY + (p.y - minY) * resizeScale) / (gridSize / 2)) * (gridSize / 2)
-            }));
+            const newPoints = el.points.map(p => {
+              if (!snapToGrid) {
+                return {
+                  x: minX + (p.x - minX) * resizeScale,
+                  y: minY + (p.y - minY) * resizeScale
+                };
+              }
+              return {
+                x: Math.round((minX + (p.x - minX) * resizeScale) / (gridSize / 2)) * (gridSize / 2),
+                y: Math.round((minY + (p.y - minY) * resizeScale) / (gridSize / 2)) * (gridSize / 2)
+              };
+            });
             
             let newProperties = el.properties;
             if (el.properties?.pivot) {
@@ -244,10 +263,18 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                newProperties = {
                  ...el.properties,
                  pivot: { x: minX + (el.properties.pivot.x - minX) * scale, y: minY + (el.properties.pivot.y - minY) * scale },
-                 originalPoints: el.properties.originalPoints?.map((p: Point) => ({
-                   x: Math.round((minX + (p.x - minX) * scale) / (gridSize / 2)) * (gridSize / 2),
-                   y: Math.round((minY + (p.y - minY) * scale) / (gridSize / 2)) * (gridSize / 2)
-                 }))
+                 originalPoints: el.properties.originalPoints?.map((p: Point) => {
+                   if (!snapToGrid) {
+                     return {
+                       x: minX + (p.x - minX) * scale,
+                       y: minY + (p.y - minY) * scale
+                     };
+                   }
+                   return {
+                     x: Math.round((minX + (p.x - minX) * scale) / (gridSize / 2)) * (gridSize / 2),
+                     y: Math.round((minY + (p.y - minY) * scale) / (gridSize / 2)) * (gridSize / 2)
+                   };
+                 })
                };
             }
             return { ...el, points: newPoints, properties: newProperties };
@@ -368,6 +395,35 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           
           if (maxX - minX > 0 && maxY - minY > 0) {
             onExportRegion?.({ minX, minY, maxX, maxY });
+          }
+        } else if (tool === 'export-tile') {
+          const exportPoint = startDrawPoint;
+          const newEl: MapElement = {
+            id: 'export-tile-marker',
+            type: 'export-tile' as any,
+            points: [exportPoint, { x: exportPoint.x + 144, y: exportPoint.y + 144 }]
+          };
+          setElements([...elements.filter(e => e.type !== 'export-tile'), newEl]);
+          setTool('select');
+        } else if (tool.startsWith('decoration-')) {
+          let p1 = startDrawPoint;
+          let p2 = currentDrawPoint;
+          
+          if (snapToGrid) {
+             // Center-based drawing so the center snaps to the grid intersection
+             const rx = Math.abs(currentDrawPoint.x - startDrawPoint.x);
+             const ry = Math.abs(currentDrawPoint.y - startDrawPoint.y);
+             p1 = { x: startDrawPoint.x - rx, y: startDrawPoint.y - ry };
+             p2 = { x: startDrawPoint.x + rx, y: startDrawPoint.y + ry };
+          }
+
+          if (p1.x !== p2.x && p1.y !== p2.y) {
+            addElement({
+              id: Math.random().toString(36).substring(2, 9),
+              type: tool as any,
+              points: [p1, p2],
+              properties: { hatchStyle, hatchDensity, hatchWidth, hatchSmoothness, hatchOrganic }
+            });
           }
         } else if (tool === 'wall' || tool.startsWith('door')) {
           addElement({
@@ -750,7 +806,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
         <rect width="100%" height="100%" fill="url(#global-grid)" />
       )}
 
-      <g transform={`translate(${viewState.x}, ${viewState.y}) scale(${viewState.zoom})`}>
+      <g id="map-container" transform={`translate(${viewState.x}, ${viewState.y}) scale(${viewState.zoom})`}>
         
         {/* Layer 1: Dyson Hatch (All sides) */}
         <g opacity={0.8} filter={hatchStyle === 'soft-border' ? 'url(#soft-blur)' : undefined}>
@@ -1174,24 +1230,66 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                   strokeWidth="1.5"
                 />
               );
+            } else if (el.type === 'export-tile') {
+              const minX = Math.min(el.points[0].x, el.points[1].x);
+              const minY = Math.min(el.points[0].y, el.points[1].y);
+              const isSelected = selectedElementIds.includes(el.id);
+              return (
+                <g key={el.id} className="export-ignore" style={{ cursor: isSelected ? 'move' : 'pointer' }}>
+                  <rect
+                    x={minX}
+                    y={minY}
+                    width={144}
+                    height={144}
+                    fill={isSelected ? "rgba(59,130,246,0.1)" : "rgba(59,130,246,0.05)"}
+                    stroke="rgb(59,130,246)"
+                    strokeWidth="2"
+                    strokeDasharray="8 4"
+                  />
+                  <text
+                    x={minX + 4}
+                    y={minY - 6}
+                    fill="rgb(59,130,246)"
+                    fontSize="12"
+                    fontWeight="bold"
+                    className="select-none"
+                  >
+                    Export Tile (144x144)
+                  </text>
+                </g>
+              );
             }
             return null;
           })}
         </g>
 
         {/* Current Drawing Overlay */}
-        {isDrawing && tool !== 'select' && tool !== 'rotate' && (
+        {isDrawing && tool === 'export-tile' && (
+          <rect
+            x={startDrawPoint.x}
+            y={startDrawPoint.y}
+            width={144}
+            height={144}
+            fill="rgba(59,130,246,0.1)"
+            stroke="rgb(59,130,246)"
+            strokeWidth="2"
+            strokeDasharray="4 4"
+          />
+        )}
+        {isDrawing && tool !== 'select' && tool !== 'rotate' && tool !== 'export-tile' && (
           <rect 
-            x={Math.min(startDrawPoint.x, currentDrawPoint.x)} 
-            y={Math.min(startDrawPoint.y, currentDrawPoint.y)} 
-            width={Math.abs(currentDrawPoint.x - startDrawPoint.x)} 
-            height={Math.abs(currentDrawPoint.y - startDrawPoint.y)} 
+            className="export-ignore"
+            x={tool.startsWith('decoration-') && snapToGrid ? startDrawPoint.x - Math.abs(currentDrawPoint.x - startDrawPoint.x) : Math.min(startDrawPoint.x, currentDrawPoint.x)} 
+            y={tool.startsWith('decoration-') && snapToGrid ? startDrawPoint.y - Math.abs(currentDrawPoint.y - startDrawPoint.y) : Math.min(startDrawPoint.y, currentDrawPoint.y)} 
+            width={tool.startsWith('decoration-') && snapToGrid ? Math.abs(currentDrawPoint.x - startDrawPoint.x) * 2 : Math.abs(currentDrawPoint.x - startDrawPoint.x)} 
+            height={tool.startsWith('decoration-') && snapToGrid ? Math.abs(currentDrawPoint.y - startDrawPoint.y) * 2 : Math.abs(currentDrawPoint.y - startDrawPoint.y)} 
             fill={tool === 'fill' ? 'rgba(0,0,0,0.5)' : tool === 'unfill' ? 'rgba(255,255,255,0.8)' : tool === 'delete' ? 'rgba(239,68,68,0.2)' : tool === 'export-region' ? 'rgba(34,197,94,0.1)' : 'rgba(79, 70, 229, 0.1)'} 
             stroke={tool === 'delete' ? 'rgb(239,68,68)' : tool === 'export-region' ? 'rgb(34,197,94)' : '#4f46e5'} 
             strokeWidth="2" 
             strokeDasharray={tool === 'interior' || tool === 'unfill' || tool === 'delete' || tool === 'export-region' ? "4 4" : "none"}
           />
         )}
+        
         {isDrawing && (tool === 'wall' || tool === 'door') && (
           <line 
             x1={startDrawPoint.x} y1={startDrawPoint.y}
@@ -1209,7 +1307,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           const maxY = Math.max(...el.points.map((p: Point) => p.y));
           
           return (
-            <g key={`sel-${el.id}`}>
+            <g key={`sel-${el.id}`} className="export-ignore">
               <rect
                 x={minX - 5}
                 y={minY - 5}
