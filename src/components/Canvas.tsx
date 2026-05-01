@@ -67,6 +67,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     setViewState,
     gridSize,
     showGrid,
+    showHatch,
     tool,
     hatchStyle,
     hatchDensity,
@@ -809,41 +810,43 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
       <g id="map-container" transform={`translate(${viewState.x}, ${viewState.y}) scale(${viewState.zoom})`}>
         
         {/* Layer 1: Dyson Hatch (All sides) */}
-        <g opacity={0.8} filter={hatchStyle === 'soft-border' ? 'url(#soft-blur)' : undefined}>
-          {!hatchOrganic && renderedElements.map((el: MapElement) => {
-            if (el.type === 'room' || el.type === 'interior') {
-              const w = el.points[1].x - el.points[0].x;
-              const h = el.points[1].y - el.points[0].y;
-              return (
-                <rect 
-                  key={`hatch-${el.id}`}
-                  x={el.points[0].x} 
-                  y={el.points[0].y} 
-                  width={w} 
-                  height={h} 
-                  fill="none"
-                  stroke={hatchStyle === 'soft-border' ? softBorderColor : `url(#${hatchStyle})`}
-                  strokeWidth={gridSize * hatchWidth * 2} 
-                  strokeLinejoin="round" 
-                />
-              );
-            }
-            if (el.type === 'wall') {
-              return (
-                <line
-                  key={`hatch-${el.id}`}
-                  x1={el.points[0].x} y1={el.points[0].y}
-                  x2={el.points[1].x} y2={el.points[1].y}
-                  stroke={hatchStyle === 'soft-border' ? softBorderColor : `url(#${hatchStyle})`}
-                  strokeWidth={gridSize * hatchWidth * 2}
-                  strokeLinecap="square"
-                />
-              );
-            }
-            return null;
-          })}
-          {hatchOrganic && organicMaskElements}
-        </g>
+        {showHatch && (
+          <g opacity={0.8} filter={hatchStyle === 'soft-border' ? 'url(#soft-blur)' : undefined}>
+            {!hatchOrganic && renderedElements.map((el: MapElement) => {
+              if (el.type === 'room' || el.type === 'interior') {
+                const w = el.points[1].x - el.points[0].x;
+                const h = el.points[1].y - el.points[0].y;
+                return (
+                  <rect 
+                    key={`hatch-${el.id}`}
+                    x={el.points[0].x} 
+                    y={el.points[0].y} 
+                    width={w} 
+                    height={h} 
+                    fill="none"
+                    stroke={hatchStyle === 'soft-border' ? softBorderColor : `url(#${hatchStyle})`}
+                    strokeWidth={gridSize * hatchWidth * 2} 
+                    strokeLinejoin="round" 
+                  />
+                );
+              }
+              if (el.type === 'wall') {
+                return (
+                  <line
+                    key={`hatch-${el.id}`}
+                    x1={el.points[0].x} y1={el.points[0].y}
+                    x2={el.points[1].x} y2={el.points[1].y}
+                    stroke={hatchStyle === 'soft-border' ? softBorderColor : `url(#${hatchStyle})`}
+                    strokeWidth={gridSize * hatchWidth * 2}
+                    strokeLinecap="square"
+                  />
+                );
+              }
+              return null;
+            })}
+            {hatchOrganic && organicMaskElements}
+          </g>
+        )}
 
         {/* Layer 2: Room Floor (White rects) */}
         <g>

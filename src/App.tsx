@@ -6,7 +6,7 @@ import PatternEditor from './components/PatternEditor';
 import { generateDysonSegments, segmentsToPath } from './utils/dysonGenerator';
 
 function App() {
-  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, snapToGrid, setSnapToGrid, showGrid, toggleGrid, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement } = useMapStore();
+  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, snapToGrid, setSnapToGrid, showGrid, toggleGrid, showHatch, setShowHatch, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement } = useMapStore();
 
   const exportTileEl = elements.find(el => el.type === 'export-tile');
   const exportTile = exportTileEl ? exportTileEl.points[0] : null;
@@ -339,6 +339,17 @@ function App() {
                  onChange={toggleGrid}
                />
                Show Grid
+             </label>
+           </div>
+           <div>
+             <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer mt-2">
+               <input 
+                 type="checkbox" 
+                 className="rounded text-indigo-600 focus:ring-indigo-500" 
+                 checked={showHatch}
+                 onChange={(e) => setShowHatch(e.target.checked)}
+               />
+               Show Hatch
              </label>
           </div>
           <div>

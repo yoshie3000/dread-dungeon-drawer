@@ -53,6 +53,8 @@ interface MapState {
   viewState: { x: number, y: number, zoom: number };
   setViewState: (viewState: Partial<{x: number, y: number, zoom: number}>) => void;
   gridSize: number;
+  showHatch: boolean;
+  setShowHatch: (show: boolean) => void;
   showGrid: boolean;
   toggleGrid: () => void;
   setGridSize: (gridSize: number) => void;
@@ -134,6 +136,8 @@ export const useMapStore = create<MapState>((set) => ({
   setViewState: (viewState) => set((state) => ({ viewState: { ...state.viewState, ...viewState } })),
   gridSize: 50,
   setGridSize: (gridSize) => set({ gridSize }),
+  showHatch: true,
+  setShowHatch: (showHatch) => set({ showHatch }),
   showGrid: true,
   toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
 }))
