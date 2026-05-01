@@ -25,7 +25,7 @@ function getRoughPath(drawable: any): string {
 import type { MapElement } from '../store';
 
 const getClickedElement = (rawPoint: Point, elements: MapElement[]) => {
-  const areaTools = ['room', 'interior', 'fill', 'unfill', 'decoration-square', 'decoration-circle', 'decoration-rectangle'];
+  const areaTools = ['room', 'interior', 'fill', 'unfill', 'decoration-square', 'decoration-circle', 'decoration-rectangle', 'export-tile'];
   
   return [...elements].reverse().find(el => {
     if (areaTools.includes(el.type)) {
@@ -79,7 +79,8 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     savedPatterns,
     selectedElementIds,
     setSelectedElementIds,
-    snapToGrid
+    snapToGrid,
+    setTool
   } = useMapStore();
   const svgRef = useRef<SVGSVGElement>(null);
   
@@ -395,6 +396,15 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           if (maxX - minX > 0 && maxY - minY > 0) {
             onExportRegion?.({ minX, minY, maxX, maxY });
           }
+        } else if (tool === 'export-tile') {
+          const exportPoint = startDrawPoint;
+          const newEl: MapElement = {
+            id: 'export-tile-marker',
+            type: 'export-tile' as any,
+            points: [exportPoint, { x: exportPoint.x + 144, y: exportPoint.y + 144 }]
+          };
+          setElements([...elements.filter(e => e.type !== 'export-tile'), newEl]);
+          setTool('select');
         } else if (tool.startsWith('decoration-')) {
           let p1 = startDrawPoint;
           let p2 = currentDrawPoint;
@@ -796,7 +806,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
         <rect width="100%" height="100%" fill="url(#global-grid)" />
       )}
 
-      <g transform={`translate(${viewState.x}, ${viewState.y}) scale(${viewState.zoom})`}>
+      <g id="map-container" transform={`translate(${viewState.x}, ${viewState.y}) scale(${viewState.zoom})`}>
         
         {/* Layer 1: Dyson Hatch (All sides) */}
         <g opacity={0.8} filter={hatchStyle === 'soft-border' ? 'url(#soft-blur)' : undefined}>
@@ -1220,13 +1230,53 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                   strokeWidth="1.5"
                 />
               );
+            } else if (el.type === 'export-tile') {
+              const minX = Math.min(el.points[0].x, el.points[1].x);
+              const minY = Math.min(el.points[0].y, el.points[1].y);
+              const isSelected = selectedElementIds.includes(el.id);
+              return (
+                <g key={el.id} className="export-ignore" style={{ cursor: isSelected ? 'move' : 'pointer' }}>
+                  <rect
+                    x={minX}
+                    y={minY}
+                    width={144}
+                    height={144}
+                    fill={isSelected ? "rgba(59,130,246,0.1)" : "rgba(59,130,246,0.05)"}
+                    stroke="rgb(59,130,246)"
+                    strokeWidth="2"
+                    strokeDasharray="8 4"
+                  />
+                  <text
+                    x={minX + 4}
+                    y={minY - 6}
+                    fill="rgb(59,130,246)"
+                    fontSize="12"
+                    fontWeight="bold"
+                    className="select-none"
+                  >
+                    Export Tile (144x144)
+                  </text>
+                </g>
+              );
             }
             return null;
           })}
         </g>
 
         {/* Current Drawing Overlay */}
-        {isDrawing && tool !== 'select' && tool !== 'rotate' && (
+        {isDrawing && tool === 'export-tile' && (
+          <rect
+            x={startDrawPoint.x}
+            y={startDrawPoint.y}
+            width={144}
+            height={144}
+            fill="rgba(59,130,246,0.1)"
+            stroke="rgb(59,130,246)"
+            strokeWidth="2"
+            strokeDasharray="4 4"
+          />
+        )}
+        {isDrawing && tool !== 'select' && tool !== 'rotate' && tool !== 'export-tile' && (
           <rect 
             x={tool.startsWith('decoration-') && snapToGrid ? startDrawPoint.x - Math.abs(currentDrawPoint.x - startDrawPoint.x) : Math.min(startDrawPoint.x, currentDrawPoint.x)} 
             y={tool.startsWith('decoration-') && snapToGrid ? startDrawPoint.y - Math.abs(currentDrawPoint.y - startDrawPoint.y) : Math.min(startDrawPoint.y, currentDrawPoint.y)} 
@@ -1238,6 +1288,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
             strokeDasharray={tool === 'interior' || tool === 'unfill' || tool === 'delete' || tool === 'export-region' ? "4 4" : "none"}
           />
         )}
+        
         {isDrawing && (tool === 'wall' || tool === 'door') && (
           <line 
             x1={startDrawPoint.x} y1={startDrawPoint.y}
@@ -1255,7 +1306,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           const maxY = Math.max(...el.points.map((p: Point) => p.y));
           
           return (
-            <g key={`sel-${el.id}`}>
+            <g key={`sel-${el.id}`} className="export-ignore">
               <rect
                 x={minX - 5}
                 y={minY - 5}

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { Segment } from './utils/dysonGenerator'
 
 export type ElementType = 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective';
-export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'door-double' | 'door-secret' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete' | 'export-region' | 'rotate' | 'decoration-square' | 'decoration-circle' | 'decoration-rectangle';
+export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'door-double' | 'door-secret' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete' | 'export-region' | 'export-tile' | 'rotate' | 'decoration-square' | 'decoration-circle' | 'decoration-rectangle';
 
 export interface Point {
   x: number;
@@ -116,14 +116,14 @@ export const useMapStore = create<MapState>((set) => ({
     const previous = newPast.pop()!;
     return {
       pastElements: newPast,
-      futureElements: [state.elements, ...state.futureElements],
+      futureElements: [...state.futureElements, state.elements],
       elements: previous
     };
   }),
   redo: () => set((state) => {
     if (state.futureElements.length === 0) return state;
     const newFuture = [...state.futureElements];
-    const next = newFuture.shift()!;
+    const next = newFuture.pop()!;
     return {
       pastElements: [...state.pastElements, state.elements],
       futureElements: newFuture,
