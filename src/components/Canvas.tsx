@@ -1278,6 +1278,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
         )}
         {isDrawing && tool !== 'select' && tool !== 'rotate' && tool !== 'export-tile' && (
           <rect 
+            className="export-ignore"
             x={tool.startsWith('decoration-') && snapToGrid ? startDrawPoint.x - Math.abs(currentDrawPoint.x - startDrawPoint.x) : Math.min(startDrawPoint.x, currentDrawPoint.x)} 
             y={tool.startsWith('decoration-') && snapToGrid ? startDrawPoint.y - Math.abs(currentDrawPoint.y - startDrawPoint.y) : Math.min(startDrawPoint.y, currentDrawPoint.y)} 
             width={tool.startsWith('decoration-') && snapToGrid ? Math.abs(currentDrawPoint.x - startDrawPoint.x) * 2 : Math.abs(currentDrawPoint.x - startDrawPoint.x)} 
