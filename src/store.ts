@@ -42,14 +42,18 @@ interface MapState {
   setBrushColor: (color: string) => void;
   brushWidth: number;
   setBrushWidth: (width: number) => void;
-  brushShape: 'round' | 'splat';
-  setBrushShape: (shape: 'round' | 'splat') => void;
+  brushShape: 'round' | 'splat' | 'pentagon';
+  setBrushShape: (shape: 'round' | 'splat' | 'pentagon') => void;
   brushSmoothness: number;
   setBrushSmoothness: (smoothness: number) => void;
   shovelTargetLayer: number;
   setShovelTargetLayer: (layer: number) => void;
   stairSteps: number;
   setStairSteps: (steps: number) => void;
+  shadowThickness: number;
+  setShadowThickness: (thickness: number) => void;
+  shadowIntensity: number;
+  setShadowIntensity: (intensity: number) => void;
   snapToGrid: boolean;
   setSnapToGrid: (snap: boolean) => void;
   savedPatterns: (Segment[] | null)[];
@@ -108,6 +112,10 @@ export const useMapStore = create<MapState>((set) => ({
   setHatchSmoothness: (smoothness) => set({ hatchSmoothness: smoothness }),
   stairSteps: 10,
   setStairSteps: (stairSteps) => set({ stairSteps }),
+  shadowThickness: 8,
+  setShadowThickness: (shadowThickness) => set({ shadowThickness }),
+  shadowIntensity: 0.15,
+  setShadowIntensity: (shadowIntensity) => set({ shadowIntensity }),
   snapToGrid: true,
   setSnapToGrid: (snap) => set({ snapToGrid: snap }),
   savedPatterns: [null, null, null, null],

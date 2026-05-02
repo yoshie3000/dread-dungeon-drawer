@@ -88,7 +88,9 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     brushWidth,
     brushShape,
     brushSmoothness,
-    shovelTargetLayer
+    shovelTargetLayer,
+    shadowThickness,
+    shadowIntensity
   } = useMapStore();
   const svgRef = useRef<SVGSVGElement>(null);
   
@@ -829,18 +831,26 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
         {renderedElements.filter((el: MapElement) => el.type === 'shovel').map((el: MapElement) => (
           <mask id={`shovel-mask-${el.id}`} key={`shovel-mask-${el.id}`}>
             <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
-            {el.properties?.brushShape === 'splat' ? (
+            {el.properties?.brushShape === 'splat' || el.properties?.brushShape === 'pentagon' ? (
               <g>
                 {filterAsteriskPoints(el.points, el.properties?.brushWidth || 10).map((p, i) => {
                   const size = el.properties?.brushWidth || 10;
                   const r = size / 2;
-                  return (
-                    <g key={`splat-${el.id}-${i}`} transform={`translate(${p.x}, ${p.y})`}>
-                       <line x1={-r} y1={0} x2={r} y2={0} stroke="white" strokeWidth={size/5} strokeLinecap="round" />
-                       <line x1={-r*0.5} y1={-r*0.866} x2={r*0.5} y2={r*0.866} stroke="white" strokeWidth={size/5} strokeLinecap="round" />
-                       <line x1={-r*0.5} y1={r*0.866} x2={r*0.5} y2={-r*0.866} stroke="white" strokeWidth={size/5} strokeLinecap="round" />
-                    </g>
-                  );
+                  if (el.properties?.brushShape === 'pentagon') {
+                    const pts = Array.from({length: 5}).map((_, j) => {
+                       const angle = (j * 2 * Math.PI) / 5 - Math.PI / 2;
+                       return `${r * Math.cos(angle)},${r * Math.sin(angle)}`;
+                    }).join(' ');
+                    return <polygon key={`pent-${el.id}-${i}`} points={pts} fill="white" transform={`translate(${p.x}, ${p.y})`} />;
+                  } else {
+                    return (
+                      <g key={`splat-${el.id}-${i}`} transform={`translate(${p.x}, ${p.y})`}>
+                         <line x1={-r} y1={0} x2={r} y2={0} stroke="white" strokeWidth={size/5} strokeLinecap="round" />
+                         <line x1={-r*0.5} y1={-r*0.866} x2={r*0.5} y2={r*0.866} stroke="white" strokeWidth={size/5} strokeLinecap="round" />
+                         <line x1={-r*0.5} y1={r*0.866} x2={r*0.5} y2={-r*0.866} stroke="white" strokeWidth={size/5} strokeLinecap="round" />
+                      </g>
+                    );
+                  }
                 })}
               </g>
             ) : (
@@ -1147,10 +1157,10 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 key={`merged-shadow-${i}`}
                 x1={line.x1} y1={line.y1}
                 x2={line.x2} y2={line.y2}
-                stroke="rgba(0,0,0,0.15)"
-                strokeWidth="8"
+                stroke={`rgba(0,0,0,${shadowIntensity})`}
+                strokeWidth={shadowThickness}
                 strokeLinecap="round"
-                transform="translate(4, 4)"
+                transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`}
               />
             ))}
             {layerRenderedElements.map((el: MapElement) => {
@@ -1165,10 +1175,10 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                     width={w} 
                     height={h} 
                     fill="none"
-                    stroke="rgba(0,0,0,0.15)"
-                    strokeWidth="8"
+                    stroke={`rgba(0,0,0,${shadowIntensity})`}
+                    strokeWidth={shadowThickness}
                     strokeLinejoin="round"
-                    transform="translate(4, 4)"
+                    transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`}
                   />
                 );
               }
@@ -1178,10 +1188,10 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                     key={`shadow-${el.id}`}
                     x1={el.points[0].x} y1={el.points[0].y}
                     x2={el.points[1].x} y2={el.points[1].y}
-                    stroke="rgba(0,0,0,0.15)"
-                    strokeWidth="8"
+                    stroke={`rgba(0,0,0,${shadowIntensity})`}
+                    strokeWidth={shadowThickness}
                     strokeLinecap="round"
-                    transform="translate(4, 4)"
+                    transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`}
                   />
                 );
               }
@@ -1376,20 +1386,28 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
               <g>
                 {layerRenderedElements.map((el: MapElement) => {
                   if (el.type === 'brush') {
-                    if (el.properties?.brushShape === 'splat') {
+                    if (el.properties?.brushShape === 'splat' || el.properties?.brushShape === 'pentagon') {
                       return (
                         <g key={`brush-${el.id}`}>
                           {filterAsteriskPoints(el.points, el.properties?.brushWidth || 10).map((p, i) => {
                             const size = el.properties?.brushWidth || 10;
                             const r = size / 2;
                             const color = el.properties?.brushColor || 'black';
-                            return (
-                              <g key={`splat-${el.id}-${i}`} transform={`translate(${p.x}, ${p.y})`}>
-                                 <line x1={-r} y1={0} x2={r} y2={0} stroke={color} strokeWidth={size/5} strokeLinecap="round" />
-                                 <line x1={-r*0.5} y1={-r*0.866} x2={r*0.5} y2={r*0.866} stroke={color} strokeWidth={size/5} strokeLinecap="round" />
-                                 <line x1={-r*0.5} y1={r*0.866} x2={r*0.5} y2={-r*0.866} stroke={color} strokeWidth={size/5} strokeLinecap="round" />
-                              </g>
-                            );
+                            if (el.properties?.brushShape === 'pentagon') {
+                              const pts = Array.from({length: 5}).map((_, j) => {
+                                 const angle = (j * 2 * Math.PI) / 5 - Math.PI / 2;
+                                 return `${r * Math.cos(angle)},${r * Math.sin(angle)}`;
+                              }).join(' ');
+                              return <polygon key={`pent-${el.id}-${i}`} points={pts} fill={color} transform={`translate(${p.x}, ${p.y})`} />;
+                            } else {
+                              return (
+                                <g key={`splat-${el.id}-${i}`} transform={`translate(${p.x}, ${p.y})`}>
+                                   <line x1={-r} y1={0} x2={r} y2={0} stroke={color} strokeWidth={size/5} strokeLinecap="round" />
+                                   <line x1={-r*0.5} y1={-r*0.866} x2={r*0.5} y2={r*0.866} stroke={color} strokeWidth={size/5} strokeLinecap="round" />
+                                   <line x1={-r*0.5} y1={r*0.866} x2={r*0.5} y2={-r*0.866} stroke={color} strokeWidth={size/5} strokeLinecap="round" />
+                                </g>
+                              );
+                            }
                           })}
                         </g>
                       );
@@ -1447,18 +1465,26 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           />
         )}
         {isDrawing && (tool === 'brush' || tool === 'shovel') && currentDrawPath.length > 0 && (
-          brushShape === 'splat' ? (
+          brushShape === 'splat' || brushShape === 'pentagon' ? (
             <g opacity={tool === 'shovel' ? 0.5 : 1} className="export-ignore">
               {filterAsteriskPoints(currentDrawPath, brushWidth).map((p, i) => {
                 const r = brushWidth / 2;
                 const color = tool === 'brush' ? brushColor : 'black';
-                return (
-                  <g key={`splat-live-${i}`} transform={`translate(${p.x}, ${p.y})`}>
-                     <line x1={-r} y1={0} x2={r} y2={0} stroke={color} strokeWidth={brushWidth/5} strokeLinecap="round" />
-                     <line x1={-r*0.5} y1={-r*0.866} x2={r*0.5} y2={r*0.866} stroke={color} strokeWidth={brushWidth/5} strokeLinecap="round" />
-                     <line x1={-r*0.5} y1={r*0.866} x2={r*0.5} y2={-r*0.866} stroke={color} strokeWidth={brushWidth/5} strokeLinecap="round" />
-                  </g>
-                );
+                if (brushShape === 'pentagon') {
+                  const pts = Array.from({length: 5}).map((_, j) => {
+                     const angle = (j * 2 * Math.PI) / 5 - Math.PI / 2;
+                     return `${r * Math.cos(angle)},${r * Math.sin(angle)}`;
+                  }).join(' ');
+                  return <polygon key={`pent-live-${i}`} points={pts} fill={color} transform={`translate(${p.x}, ${p.y})`} />;
+                } else {
+                  return (
+                    <g key={`splat-live-${i}`} transform={`translate(${p.x}, ${p.y})`}>
+                       <line x1={-r} y1={0} x2={r} y2={0} stroke={color} strokeWidth={brushWidth/5} strokeLinecap="round" />
+                       <line x1={-r*0.5} y1={-r*0.866} x2={r*0.5} y2={r*0.866} stroke={color} strokeWidth={brushWidth/5} strokeLinecap="round" />
+                       <line x1={-r*0.5} y1={r*0.866} x2={r*0.5} y2={-r*0.866} stroke={color} strokeWidth={brushWidth/5} strokeLinecap="round" />
+                    </g>
+                  );
+                }
               })}
             </g>
           ) : (

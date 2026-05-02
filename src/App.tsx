@@ -6,7 +6,7 @@ import PatternEditor from './components/PatternEditor';
 import { generateDysonSegments, segmentsToPath } from './utils/dysonGenerator';
 
 function App() {
-  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, snapToGrid, setSnapToGrid, showGrid, toggleGrid, showHatch, setShowHatch, activeLayer, setActiveLayer, layerVisibility, toggleLayerVisibility, layerLock, toggleLayerLock, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement, addElement, setElements, setSelectedElementIds, brushColor, setBrushColor, brushWidth, setBrushWidth, brushShape, setBrushShape, brushSmoothness, setBrushSmoothness, shovelTargetLayer, setShovelTargetLayer } = useMapStore();
+  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, shadowThickness, setShadowThickness, shadowIntensity, setShadowIntensity, snapToGrid, setSnapToGrid, showGrid, toggleGrid, showHatch, setShowHatch, activeLayer, setActiveLayer, layerVisibility, toggleLayerVisibility, layerLock, toggleLayerLock, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement, addElement, setElements, setSelectedElementIds, brushColor, setBrushColor, brushWidth, setBrushWidth, brushShape, setBrushShape, brushSmoothness, setBrushSmoothness, shovelTargetLayer, setShovelTargetLayer } = useMapStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -47,7 +47,10 @@ function App() {
   const [editingSlot, setEditingSlot] = useState<number | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [isHatchPanelOpen, setIsHatchPanelOpen] = useState(false);
+  const [isBrushPanelOpen, setIsBrushPanelOpen] = useState(false);
+  const [isShovelPanelOpen, setIsShovelPanelOpen] = useState(false);
   const [isStairPanelOpen, setIsStairPanelOpen] = useState(false);
+  const [isShadowPanelOpen, setIsShadowPanelOpen] = useState(false);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -458,7 +461,7 @@ function App() {
         <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-6 pb-2 border-b border-slate-100">Properties</h2>
         
         <div className="space-y-4">
-          <div>
+           <div>
              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
                <input 
                  type="checkbox" 
@@ -469,68 +472,6 @@ function App() {
                Show Grid
               </label>
            </div>
-           
-           {(tool === 'brush' || tool === 'shovel') && (
-             <div className="mt-4 p-3 bg-slate-50 rounded border border-slate-200">
-               <h3 className="text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wider">{tool === 'brush' ? 'Brush Settings' : 'Shovel Settings'}</h3>
-               
-               {tool === 'brush' && (
-                 <div className="mb-3">
-                   <label className="block text-xs font-medium text-slate-600 mb-1">Color</label>
-                   <div className="flex gap-2">
-                     <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="w-8 h-8 rounded cursor-pointer" />
-                     <input type="text" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="flex-1 text-sm border border-slate-200 rounded px-2" />
-                   </div>
-                 </div>
-               )}
-
-               {tool === 'shovel' && (
-                 <div className="mb-3">
-                   <label className="block text-xs font-medium text-slate-600 mb-1">Target Layer to Reveal</label>
-                   <select 
-                     value={shovelTargetLayer} 
-                     onChange={(e) => setShovelTargetLayer(Number(e.target.value))}
-                     className="w-full text-sm border border-slate-200 rounded p-1"
-                   >
-                     {[0, 1, 2, 3].map(l => <option key={l} value={l}>Layer {l}</option>)}
-                   </select>
-                 </div>
-               )}
-
-               <div className="mb-3">
-                 <label className="block text-xs font-medium text-slate-600 mb-1">Width: {brushWidth}px</label>
-                 <input 
-                   type="range" min="1" max="100" value={brushWidth} 
-                   onChange={(e) => setBrushWidth(Number(e.target.value))} 
-                   className="w-full"
-                 />
-               </div>
-
-               <div className="mb-3">
-                 <label className="block text-xs font-medium text-slate-600 mb-1">Shape</label>
-                 <select 
-                   value={brushShape} 
-                   onChange={(e) => setBrushShape(e.target.value as 'round' | 'splat')}
-                   className="w-full text-sm border border-slate-200 rounded p-1"
-                 >
-                   <option value="round">Round</option>
-                   <option value="splat">Splat / Organic</option>
-                 </select>
-               </div>
-
-               {brushShape === 'splat' && (
-                 <div>
-                   <label className="block text-xs font-medium text-slate-600 mb-1">Splat Intensity: {Math.round(brushSmoothness * 100)}%</label>
-                   <input 
-                     type="range" min="0" max="1" step="0.05" value={brushSmoothness} 
-                     onChange={(e) => setBrushSmoothness(Number(e.target.value))} 
-                     className="w-full"
-                   />
-                 </div>
-               )}
-             </div>
-           )}
-
            <div>
              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer mt-2">
                <input 
@@ -541,8 +482,8 @@ function App() {
                />
                Show Hatch
              </label>
-          </div>
-          <div>
+           </div>
+           <div>
              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer mt-2">
                <input 
                  type="checkbox" 
@@ -552,7 +493,130 @@ function App() {
                />
                Snap to Grid
              </label>
+           </div>
+           
+          {/* Brush Properties */}
+          <div className="mt-4 border border-slate-200 rounded-md bg-white overflow-hidden">
+            <button 
+              onClick={() => setIsBrushPanelOpen(!isBrushPanelOpen)}
+              className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm transition-colors"
+            >
+              <span>Brush Properties</span>
+              <svg 
+                className={`w-4 h-4 transform transition-transform ${isBrushPanelOpen ? 'rotate-180' : ''}`} 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <div className={`transition-all duration-200 ease-in-out ${isBrushPanelOpen ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+              <div className="p-4 border-t border-slate-200">
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Color</label>
+                  <div className="flex gap-2">
+                    <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="w-8 h-8 rounded cursor-pointer" />
+                    <input type="text" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="flex-1 text-sm border border-slate-200 rounded px-2" />
+                  </div>
+                </div>
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Width: {brushWidth}px</label>
+                  <input 
+                    type="range" min="1" max="100" value={brushWidth} 
+                    onChange={(e) => setBrushWidth(Number(e.target.value))} 
+                    className="w-full"
+                  />
+                </div>
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Shape</label>
+                  <select 
+                    value={brushShape} 
+                    onChange={(e) => setBrushShape(e.target.value as 'round' | 'splat' | 'pentagon')}
+                    className="w-full text-sm border border-slate-200 rounded p-1"
+                  >
+                    <option value="round">Round</option>
+                    <option value="splat">Splat / Asterisk</option>
+                    <option value="pentagon">Pentagon</option>
+                  </select>
+                </div>
+                {(brushShape === 'splat' || brushShape === 'pentagon') && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Stamp Spacing / Intensity: {Math.round(brushSmoothness * 100)}%</label>
+                    <input 
+                      type="range" min="0" max="1" step="0.05" value={brushSmoothness} 
+                      onChange={(e) => setBrushSmoothness(Number(e.target.value))} 
+                      className="w-full"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
+
+          {/* Shovel Properties */}
+          <div className="mt-4 border border-slate-200 rounded-md bg-white overflow-hidden">
+            <button 
+              onClick={() => setIsShovelPanelOpen(!isShovelPanelOpen)}
+              className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm transition-colors"
+            >
+              <span>Shovel Properties</span>
+              <svg 
+                className={`w-4 h-4 transform transition-transform ${isShovelPanelOpen ? 'rotate-180' : ''}`} 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <div className={`transition-all duration-200 ease-in-out ${isShovelPanelOpen ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+              <div className="p-4 border-t border-slate-200">
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Target Layer to Reveal</label>
+                  <select 
+                    value={shovelTargetLayer} 
+                    onChange={(e) => setShovelTargetLayer(Number(e.target.value))}
+                    className="w-full text-sm border border-slate-200 rounded p-1"
+                  >
+                    {[0, 1, 2, 3].map(l => <option key={l} value={l}>Layer {l}</option>)}
+                  </select>
+                </div>
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Width: {brushWidth}px</label>
+                  <input 
+                    type="range" min="1" max="100" value={brushWidth} 
+                    onChange={(e) => setBrushWidth(Number(e.target.value))} 
+                    className="w-full"
+                  />
+                </div>
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Shape</label>
+                  <select 
+                    value={brushShape} 
+                    onChange={(e) => setBrushShape(e.target.value as 'round' | 'splat' | 'pentagon')}
+                    className="w-full text-sm border border-slate-200 rounded p-1"
+                  >
+                    <option value="round">Round</option>
+                    <option value="splat">Splat / Asterisk</option>
+                    <option value="pentagon">Pentagon</option>
+                  </select>
+                </div>
+                {(brushShape === 'splat' || brushShape === 'pentagon') && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Stamp Spacing / Intensity: {Math.round(brushSmoothness * 100)}%</label>
+                    <input 
+                      type="range" min="0" max="1" step="0.05" value={brushSmoothness} 
+                      onChange={(e) => setBrushSmoothness(Number(e.target.value))} 
+                      className="w-full"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+
           <div>
             <label className="block text-sm text-slate-700 mb-1 mt-4">Grid Size (px)</label>
             <input 
@@ -770,6 +834,55 @@ function App() {
                     min="4"
                     max="20"
                     step="1"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 border border-slate-200 rounded-md bg-white overflow-hidden">
+            <button 
+              onClick={() => setIsShadowPanelOpen(!isShadowPanelOpen)}
+              className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm transition-colors"
+            >
+              <span>Shadow Properties</span>
+              <svg 
+                className={`w-4 h-4 transform transition-transform ${isShadowPanelOpen ? 'rotate-180' : ''}`} 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            
+            <div className={`transition-all duration-200 ease-in-out ${isShadowPanelOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+              <div className="p-4 border-t border-slate-200">
+                <div>
+                  <label className="block text-sm text-slate-700 mb-1 mt-2">
+                    Shadow Thickness ({shadowThickness}px)
+                  </label>
+                  <input 
+                    type="range" 
+                    className="w-full" 
+                    value={shadowThickness}
+                    onChange={(e) => setShadowThickness(Number(e.target.value))}
+                    min="0"
+                    max="40"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-700 mb-1 mt-4">
+                    Shadow Darkness ({Math.round(shadowIntensity * 100)}%)
+                  </label>
+                  <input 
+                    type="range" 
+                    className="w-full" 
+                    value={shadowIntensity}
+                    onChange={(e) => setShadowIntensity(Number(e.target.value))}
+                    min="0"
+                    max="1"
+                    step="0.05"
                   />
                 </div>
               </div>
