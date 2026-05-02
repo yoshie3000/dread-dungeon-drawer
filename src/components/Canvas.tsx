@@ -137,7 +137,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
         const clickedEl = getClickedElement(rawPoint, elements.filter(el => !layerLock[el.layer ?? 0]));
         
         if (clickedEl) {
-          if (selectedElementIds.length === 1 && selectedElementIds[0] === clickedEl.id && clickedEl.type.startsWith('decoration-')) {
+          if (selectedElementIds.length === 1 && selectedElementIds[0] === clickedEl.id && (clickedEl.type.startsWith('decoration-') || clickedEl.type === 'image')) {
             const maxX = Math.max(...clickedEl.points.map(p => p.x));
             const maxY = Math.max(...clickedEl.points.map(p => p.y));
             
@@ -1346,7 +1346,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 strokeDasharray="5,5"
                 pointerEvents="none"
               />
-              {selectedElementIds.length === 1 && el.type.startsWith('decoration-') && (
+              {selectedElementIds.length === 1 && (el.type.startsWith('decoration-') || el.type === 'image') && (
                 <rect 
                   x={maxX - 5} 
                   y={maxY - 5} 

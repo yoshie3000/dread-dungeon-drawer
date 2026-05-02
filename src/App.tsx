@@ -6,7 +6,7 @@ import PatternEditor from './components/PatternEditor';
 import { generateDysonSegments, segmentsToPath } from './utils/dysonGenerator';
 
 function App() {
-  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, snapToGrid, setSnapToGrid, showGrid, toggleGrid, showHatch, setShowHatch, activeLayer, setActiveLayer, layerVisibility, toggleLayerVisibility, layerLock, toggleLayerLock, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement, addElement } = useMapStore();
+  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, snapToGrid, setSnapToGrid, showGrid, toggleGrid, showHatch, setShowHatch, activeLayer, setActiveLayer, layerVisibility, toggleLayerVisibility, layerLock, toggleLayerLock, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement, addElement, setElements, setSelectedElementIds } = useMapStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -17,16 +17,21 @@ function App() {
     reader.onload = (event) => {
       const dataUrl = event.target?.result as string;
       if (dataUrl) {
-        // Create an image element centered or at 0,0 with a default size
-        // We'll give it a default 4x4 grid size. It can be resized later.
-        const defaultSize = gridSize * 4;
-        addElement({
-          id: Math.random().toString(36).substring(2, 9),
-          type: 'image' as any,
-          layer: activeLayer,
-          points: [{ x: 0, y: 0 }, { x: defaultSize, y: defaultSize }],
-          properties: { dataUrl }
-        });
+        const img = new Image();
+        img.onload = () => {
+          // Use the intrinsic width and height of the uploaded SVG
+          const imgWidth = img.width || gridSize * 4;
+          const imgHeight = img.height || gridSize * 4;
+
+          addElement({
+            id: Math.random().toString(36).substring(2, 9),
+            type: 'image' as any,
+            layer: activeLayer,
+            points: [{ x: 0, y: 0 }, { x: imgWidth, y: imgHeight }],
+            properties: { dataUrl }
+          });
+        };
+        img.src = dataUrl;
       }
     };
     reader.readAsDataURL(file);
@@ -68,11 +73,43 @@ function App() {
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
         redo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+        e.preventDefault();
+        if (selectedElementIds.length > 0) {
+          const selectedElements = elements.filter(el => selectedElementIds.includes(el.id));
+          const newElements = selectedElements.map(el => ({
+            ...el,
+            id: Math.random().toString(36).substring(2, 9),
+            points: el.points.map(p => ({ x: p.x + gridSize, y: p.y + gridSize }))
+          }));
+          setElements([...elements, ...newElements]);
+          setSelectedElementIds(newElements.map(el => el.id));
+        }
+      } else if (e.key.startsWith('Arrow') && selectedElementIds.length > 0) {
+        e.preventDefault();
+        const moveAmount = snapToGrid ? gridSize / 2 : 5;
+        let dx = 0;
+        let dy = 0;
+        if (e.key === 'ArrowUp') dy = -moveAmount;
+        if (e.key === 'ArrowDown') dy = moveAmount;
+        if (e.key === 'ArrowLeft') dx = -moveAmount;
+        if (e.key === 'ArrowRight') dx = moveAmount;
+
+        const newElements = elements.map(el => {
+          if (selectedElementIds.includes(el.id)) {
+            return {
+              ...el,
+              points: el.points.map(p => ({ x: p.x + dx, y: p.y + dy }))
+            };
+          }
+          return el;
+        });
+        setElements(newElements);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo]);
+  }, [undo, redo, elements, selectedElementIds, gridSize, setElements, setSelectedElementIds, snapToGrid]);
 
   const toolGroups = [
     {
