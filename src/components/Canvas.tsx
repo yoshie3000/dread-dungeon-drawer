@@ -25,7 +25,7 @@ function getRoughPath(drawable: any): string {
 import type { MapElement } from '../store';
 
 const getClickedElement = (rawPoint: Point, elements: MapElement[]) => {
-  const areaTools = ['room', 'interior', 'fill', 'unfill', 'decoration-square', 'decoration-circle', 'decoration-rectangle', 'export-tile'];
+  const areaTools = ['room', 'interior', 'fill', 'unfill', 'decoration-square', 'decoration-circle', 'decoration-rectangle', 'export-tile', 'image'];
   
   return [...elements].reverse().find(el => {
     if (areaTools.includes(el.type)) {
@@ -67,6 +67,9 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     setViewState,
     gridSize,
     showGrid,
+    showHatch,
+    layerVisibility,
+    layerLock,
     tool,
     hatchStyle,
     hatchDensity,
@@ -80,7 +83,14 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     selectedElementIds,
     setSelectedElementIds,
     snapToGrid,
-    setTool
+    setTool,
+    brushColor,
+    brushWidth,
+    brushShape,
+    brushSmoothness,
+    shovelTargetLayer,
+    shadowThickness,
+    shadowIntensity
   } = useMapStore();
   const svgRef = useRef<SVGSVGElement>(null);
   
@@ -88,6 +98,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
   const [startPan, setStartPan] = useState<Point>({ x: 0, y: 0 });
 
   const [isDrawing, setIsDrawing] = useState(false);
+  const [currentDrawPath, setCurrentDrawPath] = useState<Point[]>([]);
   const [startDrawPoint, setStartDrawPoint] = useState<Point>({ x: 0, y: 0 });
   const [currentDrawPoint, setCurrentDrawPoint] = useState<Point>({ x: 0, y: 0 });
   
@@ -96,6 +107,33 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
   const [isDrawingSelectionFence, setIsDrawingSelectionFence] = useState(false);
   const [dragStartPoint, setDragStartPoint] = useState<Point>({ x: 0, y: 0 });
   const [dragOffset, setDragOffset] = useState({ dx: 0, dy: 0 });
+
+  const getSmoothPath = (points: Point[]) => {
+    if (points.length === 0) return '';
+    if (points.length === 1) return `M ${points[0].x} ${points[0].y} L ${points[0].x} ${points[0].y}`;
+    let d = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 1; i < points.length - 1; i++) {
+      const xc = (points[i].x + points[i + 1].x) / 2;
+      const yc = (points[i].y + points[i + 1].y) / 2;
+      d += ` Q ${points[i].x} ${points[i].y}, ${xc} ${yc}`;
+    }
+    d += ` L ${points[points.length - 1].x} ${points[points.length - 1].y}`;
+    return d;
+  };
+
+  const filterAsteriskPoints = (points: Point[], size: number) => {
+    if (points.length === 0) return [];
+    const result = [points[0]];
+    let lastPoint = points[0];
+    for (let i = 1; i < points.length; i++) {
+      const dist = Math.hypot(points[i].x - lastPoint.x, points[i].y - lastPoint.y);
+      if (dist >= size / 2) {
+        result.push(points[i]);
+        lastPoint = points[i];
+      }
+    }
+    return result;
+  };
 
   const [isResizing, setIsResizing] = useState(false);
   const [resizeElementId, setResizeElementId] = useState<string | null>(null);
@@ -131,10 +169,10 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     if (e.button === 0) {
       if (tool === 'select') {
         const rawPoint = getMapCoordinates(e);
-        const clickedEl = getClickedElement(rawPoint, elements);
+        const clickedEl = getClickedElement(rawPoint, elements.filter(el => !layerLock[el.layer ?? 0]));
         
         if (clickedEl) {
-          if (selectedElementIds.length === 1 && selectedElementIds[0] === clickedEl.id && clickedEl.type.startsWith('decoration-')) {
+          if (selectedElementIds.length === 1 && selectedElementIds[0] === clickedEl.id && (clickedEl.type.startsWith('decoration-') || clickedEl.type === 'image')) {
             const maxX = Math.max(...clickedEl.points.map(p => p.x));
             const maxY = Math.max(...clickedEl.points.map(p => p.y));
             
@@ -165,10 +203,14 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           setCurrentDrawPoint(rawPoint);
         }
       } else {
-        const point = getSnappedPoint(getMapCoordinates(e));
+        const rawPoint = getMapCoordinates(e);
+        const point = (tool === 'brush' || tool === 'shovel') ? rawPoint : getSnappedPoint(rawPoint);
         setIsDrawing(true);
         setStartDrawPoint(point);
         setCurrentDrawPoint(point);
+        if (tool === 'brush' || tool === 'shovel') {
+          setCurrentDrawPath([rawPoint]);
+        }
       }
     }
   };
@@ -229,8 +271,12 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     }
 
     if (isDrawing) {
-      const point = getSnappedPoint(getMapCoordinates(e));
+      const rawPoint = getMapCoordinates(e);
+      const point = (tool === 'brush' || tool === 'shovel') ? rawPoint : getSnappedPoint(rawPoint);
       setCurrentDrawPoint(point);
+      if (tool === 'brush' || tool === 'shovel') {
+        setCurrentDrawPath(prev => [...prev, rawPoint]);
+      }
     }
   };
 
@@ -328,7 +374,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           const elMinY = Math.min(...el.points.map((p: Point) => p.y));
           const elMaxY = Math.max(...el.points.map((p: Point) => p.y));
           
-          return !(elMaxX <= minX || elMinX >= maxX || elMaxY <= minY || elMinY >= maxY);
+          return !(elMaxX <= minX || elMinX >= maxX || elMaxY <= minY || elMinY >= maxY) && !layerLock[el.layer ?? 0];
         }).map(el => el.id);
         
         setSelectedElementIds(newlySelectedIds);
@@ -383,7 +429,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
               const elMaxY = Math.max(el.points[0].y, el.points[1].y);
               
               const intersect = !(elMaxX <= minX || elMinX >= maxX || elMaxY <= minY || elMinY >= maxY);
-              return !intersect;
+              return !intersect || layerLock[el.layer ?? 0];
             });
             setElements(newElements);
           }
@@ -425,6 +471,18 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
               properties: { hatchStyle, hatchDensity, hatchWidth, hatchSmoothness, hatchOrganic }
             });
           }
+        } else if (tool === 'brush' || tool === 'shovel') {
+          if (currentDrawPath.length > 1) {
+            addElement({
+              id: Math.random().toString(36).substring(2, 9),
+              type: tool as any,
+              points: currentDrawPath,
+              properties: { 
+                brushColor, brushWidth, brushShape, brushSmoothness, shovelTargetLayer
+              }
+            });
+          }
+          setCurrentDrawPath([]);
         } else if (tool === 'wall' || tool.startsWith('door')) {
           addElement({
             id: Math.random().toString(36).substring(2, 9),
@@ -435,14 +493,14 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
       } else if (tool === 'delete' && e) {
         // Handle single click deletion
         const rawPoint = getMapCoordinates(e);
-        const clickedEl = getClickedElement(rawPoint, elements);
+        const clickedEl = getClickedElement(rawPoint, elements.filter(el => !layerLock[el.layer ?? 0]));
 
         if (clickedEl) {
           setElements(elements.filter(el => el.id !== clickedEl.id));
         }
       } else if (tool === 'rotate' && e) {
         const rawPoint = getMapCoordinates(e);
-        const clickedEl = getClickedElement(rawPoint, elements);
+        const clickedEl = getClickedElement(rawPoint, elements.filter(el => !layerLock[el.layer ?? 0]));
         
         if (clickedEl) {
           const areaTools = ['room', 'interior', 'fill', 'unfill'];
@@ -537,85 +595,10 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
 
   const scaledGridSize = gridSize * viewState.zoom;
 
-  // --- MERGE ROOM WALLS ---
-  const { mergedLines, mergedRoughPaths } = React.useMemo(() => {
-    const hWalls: Record<number, {start: number, end: number}[]> = {};
-    const vWalls: Record<number, {start: number, end: number}[]> = {};
-
-    const maskVolumes = elements.filter(el => el.type === 'room' || el.type === 'interior');
-
-    elements.filter(el => el.type === 'room').forEach(r => {
-      const minX = Math.min(r.points[0].x, r.points[1].x);
-      const maxX = Math.max(r.points[0].x, r.points[1].x);
-      const minY = Math.min(r.points[0].y, r.points[1].y);
-      const maxY = Math.max(r.points[0].y, r.points[1].y);
-
-      if (maxX > minX && maxY > minY) {
-        if (!hWalls[minY]) hWalls[minY] = [];
-        hWalls[minY].push({start: minX, end: maxX});
-        
-        if (!hWalls[maxY]) hWalls[maxY] = [];
-        hWalls[maxY].push({start: minX, end: maxX});
-
-        if (!vWalls[minX]) vWalls[minX] = [];
-        vWalls[minX].push({start: minY, end: maxY});
-        
-        if (!vWalls[maxX]) vWalls[maxX] = [];
-        vWalls[maxX].push({start: minY, end: maxY});
-      }
-    });
-
-    Object.keys(hWalls).forEach(yStr => {
-      const y = Number(yStr);
-      let intervals = hWalls[y];
-      
-      maskVolumes.forEach(vol => {
-        const minX = Math.min(vol.points[0].x, vol.points[1].x);
-        const maxX = Math.max(vol.points[0].x, vol.points[1].x);
-        const minY = Math.min(vol.points[0].y, vol.points[1].y);
-        const maxY = Math.max(vol.points[0].y, vol.points[1].y);
-        
-        if (minY < y && y < maxY) {
-          const newIntervals: {start: number, end: number}[] = [];
-          intervals.forEach(int => {
-            if (maxX <= int.start || minX >= int.end) {
-              newIntervals.push(int);
-            } else {
-              if (int.start < minX) newIntervals.push({start: int.start, end: minX});
-              if (int.end > maxX) newIntervals.push({start: maxX, end: int.end});
-            }
-          });
-          intervals = newIntervals;
-        }
-      });
-      hWalls[y] = intervals;
-    });
-
-    Object.keys(vWalls).forEach(xStr => {
-      const x = Number(xStr);
-      let intervals = vWalls[x];
-      
-      maskVolumes.forEach(vol => {
-        const minX = Math.min(vol.points[0].x, vol.points[1].x);
-        const maxX = Math.max(vol.points[0].x, vol.points[1].x);
-        const minY = Math.min(vol.points[0].y, vol.points[1].y);
-        const maxY = Math.max(vol.points[0].y, vol.points[1].y);
-        
-        if (minX < x && x < maxX) {
-          const newIntervals: {start: number, end: number}[] = [];
-          intervals.forEach(int => {
-            if (maxY <= int.start || minY >= int.end) {
-              newIntervals.push(int);
-            } else {
-              if (int.start < minY) newIntervals.push({start: int.start, end: minY});
-              if (int.end > maxY) newIntervals.push({start: maxY, end: int.end});
-            }
-          });
-          intervals = newIntervals;
-        }
-      });
-      vWalls[x] = intervals;
-    });
+  // --- MERGE ROOM WALLS PER LAYER ---
+  const { layerMergedLines, layerMergedRoughPaths } = React.useMemo(() => {
+    const layerMLines: {x1: number, y1: number, x2: number, y2: number}[][] = [[], [], [], []];
+    const layerMPaths: string[][] = [[], [], [], []];
 
     const mergeIntervals = (intervals: {start: number, end: number}[]) => {
       if (intervals.length === 0) return [];
@@ -633,23 +616,100 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
       return merged.filter(i => i.end > i.start);
     };
 
-    const mLines: {x1: number, y1: number, x2: number, y2: number}[] = [];
-    Object.keys(hWalls).forEach(yStr => {
-      const y = Number(yStr);
-      mergeIntervals(hWalls[y]).forEach(int => mLines.push({x1: int.start, y1: y, x2: int.end, y2: y}));
-    });
-    Object.keys(vWalls).forEach(xStr => {
-      const x = Number(xStr);
-      mergeIntervals(vWalls[x]).forEach(int => mLines.push({x1: x, y1: int.start, x2: x, y2: int.end}));
-    });
+    for (let layer = 0; layer < 4; layer++) {
+      const layerElements = elements.filter(el => (el.layer ?? 0) === layer);
+      const hWalls: Record<number, {start: number, end: number}[]> = {};
+      const vWalls: Record<number, {start: number, end: number}[]> = {};
+      const maskVolumes = layerElements.filter(el => el.type === 'room' || el.type === 'interior');
 
-    // Provide a consistent seed to RoughJS based on the coordinates to stop it from shaking
-    const mPaths = mLines.map((line, i) => {
-      const seed = Math.abs(Math.floor(line.x1 + line.y1 + line.x2 + line.y2 + i)) || 1;
-      return getRoughPath(generator.line(line.x1, line.y1, line.x2, line.y2, { roughness: 1.5, strokeWidth: 2.5, seed }));
-    });
+      layerElements.filter(el => el.type === 'room').forEach(r => {
+        const minX = Math.min(r.points[0].x, r.points[1].x);
+        const maxX = Math.max(r.points[0].x, r.points[1].x);
+        const minY = Math.min(r.points[0].y, r.points[1].y);
+        const maxY = Math.max(r.points[0].y, r.points[1].y);
 
-    return { mergedLines: mLines, mergedRoughPaths: mPaths };
+        if (maxX > minX && maxY > minY) {
+          if (!hWalls[minY]) hWalls[minY] = [];
+          hWalls[minY].push({start: minX, end: maxX});
+          if (!hWalls[maxY]) hWalls[maxY] = [];
+          hWalls[maxY].push({start: minX, end: maxX});
+          if (!vWalls[minX]) vWalls[minX] = [];
+          vWalls[minX].push({start: minY, end: maxY});
+          if (!vWalls[maxX]) vWalls[maxX] = [];
+          vWalls[maxX].push({start: minY, end: maxY});
+        }
+      });
+
+      Object.keys(hWalls).forEach(yStr => {
+        const y = Number(yStr);
+        let intervals = hWalls[y];
+        maskVolumes.forEach(vol => {
+          const minX = Math.min(vol.points[0].x, vol.points[1].x);
+          const maxX = Math.max(vol.points[0].x, vol.points[1].x);
+          const minY = Math.min(vol.points[0].y, vol.points[1].y);
+          const maxY = Math.max(vol.points[0].y, vol.points[1].y);
+          
+          if (minY < y && y < maxY) {
+            const newIntervals: {start: number, end: number}[] = [];
+            intervals.forEach(int => {
+              if (maxX <= int.start || minX >= int.end) {
+                newIntervals.push(int);
+              } else {
+                if (int.start < minX) newIntervals.push({start: int.start, end: minX});
+                if (int.end > maxX) newIntervals.push({start: maxX, end: int.end});
+              }
+            });
+            intervals = newIntervals;
+          }
+        });
+        hWalls[y] = intervals;
+      });
+
+      Object.keys(vWalls).forEach(xStr => {
+        const x = Number(xStr);
+        let intervals = vWalls[x];
+        maskVolumes.forEach(vol => {
+          const minX = Math.min(vol.points[0].x, vol.points[1].x);
+          const maxX = Math.max(vol.points[0].x, vol.points[1].x);
+          const minY = Math.min(vol.points[0].y, vol.points[1].y);
+          const maxY = Math.max(vol.points[0].y, vol.points[1].y);
+          
+          if (minX < x && x < maxX) {
+            const newIntervals: {start: number, end: number}[] = [];
+            intervals.forEach(int => {
+              if (maxY <= int.start || minY >= int.end) {
+                newIntervals.push(int);
+              } else {
+                if (int.start < minY) newIntervals.push({start: int.start, end: minY});
+                if (int.end > maxY) newIntervals.push({start: maxY, end: int.end});
+              }
+            });
+            intervals = newIntervals;
+          }
+        });
+        vWalls[x] = intervals;
+      });
+
+      const mLines: {x1: number, y1: number, x2: number, y2: number}[] = [];
+      Object.keys(hWalls).forEach(yStr => {
+        const y = Number(yStr);
+        mergeIntervals(hWalls[y]).forEach(int => mLines.push({x1: int.start, y1: y, x2: int.end, y2: y}));
+      });
+      Object.keys(vWalls).forEach(xStr => {
+        const x = Number(xStr);
+        mergeIntervals(vWalls[x]).forEach(int => mLines.push({x1: x, y1: int.start, x2: x, y2: int.end}));
+      });
+
+      const mPaths = mLines.map((line, i) => {
+        const seed = Math.abs(Math.floor(line.x1 + line.y1 + line.x2 + line.y2 + i)) || 1;
+        return getRoughPath(generator.line(line.x1, line.y1, line.x2, line.y2, { roughness: 1.5, strokeWidth: 2.5, seed }));
+      });
+
+      layerMLines[layer] = mLines;
+      layerMPaths[layer] = mPaths;
+    }
+
+    return { layerMergedLines: layerMLines, layerMergedRoughPaths: layerMPaths };
   }, [elements]);
   // --------------------------
 
@@ -657,43 +717,43 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     return segmentsToPath(dynamicSegments);
   }, [dynamicSegments]);
 
-  const organicMaskElements = React.useMemo(() => {
-    if (!hatchOrganic) return null;
-    const elementsList: React.ReactNode[] = [];
-    
+  const layerOrganicMaskElements = React.useMemo(() => {
+    if (!hatchOrganic) return [[], [], [], []];
+    const layerMasks: React.ReactNode[][] = [[], [], [], []];
     const chunkSize = 50 - (hatchSmoothness / 100) * 45;
 
-    mergedLines.forEach((line, i) => {
-      const len = Math.hypot(line.x2 - line.x1, line.y2 - line.y1);
-      const stepSize = 4;
-      const steps = Math.max(1, Math.ceil(len / stepSize));
-      
-      for (let s = 0; s <= steps; s++) {
-        const t = s / steps;
-        const x = line.x1 + t * (line.x2 - line.x1);
-        const y = line.y1 + t * (line.y2 - line.y1);
+    for (let layer = 0; layer < 4; layer++) {
+      layerMergedLines[layer].forEach((line, i) => {
+        const len = Math.hypot(line.x2 - line.x1, line.y2 - line.y1);
+        const stepSize = 4;
+        const steps = Math.max(1, Math.ceil(len / stepSize));
         
-        const chunkX = Math.floor(x / chunkSize) * chunkSize;
-        const chunkY = Math.floor(y / chunkSize) * chunkSize;
+        for (let s = 0; s <= steps; s++) {
+          const t = s / steps;
+          const x = line.x1 + t * (line.x2 - line.x1);
+          const y = line.y1 + t * (line.y2 - line.y1);
+          
+          const chunkX = Math.floor(x / chunkSize) * chunkSize;
+          const chunkY = Math.floor(y / chunkSize) * chunkSize;
 
-        const noise = (Math.sin(chunkX * 0.05) + Math.cos(chunkY * 0.05) + 2) / 4; // 0 to 1
-        const radius = gridSize * 0.1 + noise * (gridSize * hatchWidth - gridSize * 0.1);
-        
-        // Using rects naturally creates an angular, blocky mask that aligns with orthogonal walls
-        elementsList.push(
-          <rect 
-            key={`om-${i}-${s}`} 
-            x={x - radius} 
-            y={y - radius} 
-            width={radius * 2} 
-            height={radius * 2} 
-            fill={hatchStyle === 'soft-border' ? softBorderColor : `url(#${hatchStyle})`} 
-          />
-        );
-      }
-    });
-    return elementsList;
-  }, [hatchOrganic, mergedLines, gridSize, hatchWidth, hatchStyle, hatchSmoothness]);
+          const noise = (Math.sin(chunkX * 0.05) + Math.cos(chunkY * 0.05) + 2) / 4; // 0 to 1
+          const radius = gridSize * 0.1 + noise * (gridSize * hatchWidth - gridSize * 0.1);
+          
+          layerMasks[layer].push(
+            <rect 
+              key={`om-${layer}-${i}-${s}`} 
+              x={x - radius} 
+              y={y - radius} 
+              width={radius * 2} 
+              height={radius * 2} 
+              fill={hatchStyle === 'soft-border' ? softBorderColor : `url(#${hatchStyle})`} 
+            />
+          );
+        }
+      });
+    }
+    return layerMasks;
+  }, [hatchOrganic, layerMergedLines, gridSize, hatchWidth, hatchStyle, hatchSmoothness]);
 
   const renderedElements = elements.map((el: MapElement) => {
     if (isResizing && resizeElementId === el.id) {
@@ -758,128 +818,149 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                  x={viewState.x % scaledGridSize} y={viewState.y % scaledGridSize}>
           <path d={`M ${scaledGridSize} 0 L 0 0 0 ${scaledGridSize}`} fill="none" stroke="#e5e7eb" strokeWidth="1" />
         </pattern>
-
-        <mask id="room-mask">
-          <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
-          {renderedElements.map((el: MapElement) => {
-            if (el.type === 'room' || el.type === 'interior') {
-              const w = el.points[1].x - el.points[0].x;
-              const h = el.points[1].y - el.points[0].y;
-              return (
-                <rect 
-                  key={`mask-${el.id}`}
-                  x={el.points[0].x} 
-                  y={el.points[0].y} 
-                  width={w} 
-                  height={h} 
-                  fill="white" 
-                />
-              );
-            }
-            return null;
-          })}
-        </mask>
-
-        <mask id="fill-mask">
-          <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
-          {renderedElements.map((el: MapElement) => {
-            if (el.type === 'fill' || el.type === 'unfill') {
-              const w = el.points[1].x - el.points[0].x;
-              const h = el.points[1].y - el.points[0].y;
-              return (
-                <rect 
-                  key={`fill-mask-${el.id}`}
-                  x={el.points[0].x} 
-                  y={el.points[0].y} 
-                  width={w} 
-                  height={h} 
-                  fill={el.type === 'fill' ? "white" : "black"} 
-                />
-              );
-            }
-            return null;
-          })}
-        </mask>
       </defs>
 
-      {showGrid && (
-        <rect width="100%" height="100%" fill="url(#global-grid)" />
-      )}
 
       <g id="map-container" transform={`translate(${viewState.x}, ${viewState.y}) scale(${viewState.zoom})`}>
         
-        {/* Layer 1: Dyson Hatch (All sides) */}
-        <g opacity={0.8} filter={hatchStyle === 'soft-border' ? 'url(#soft-blur)' : undefined}>
-          {!hatchOrganic && renderedElements.map((el: MapElement) => {
-            if (el.type === 'room' || el.type === 'interior') {
-              const w = el.points[1].x - el.points[0].x;
-              const h = el.points[1].y - el.points[0].y;
-              return (
-                <rect 
-                  key={`hatch-${el.id}`}
-                  x={el.points[0].x} 
-                  y={el.points[0].y} 
-                  width={w} 
-                  height={h} 
-                  fill="none"
-                  stroke={hatchStyle === 'soft-border' ? softBorderColor : `url(#${hatchStyle})`}
-                  strokeWidth={gridSize * hatchWidth * 2} 
-                  strokeLinejoin="round" 
-                />
-              );
-            }
-            if (el.type === 'wall') {
-              return (
-                <line
-                  key={`hatch-${el.id}`}
-                  x1={el.points[0].x} y1={el.points[0].y}
-                  x2={el.points[1].x} y2={el.points[1].y}
-                  stroke={hatchStyle === 'soft-border' ? softBorderColor : `url(#${hatchStyle})`}
-                  strokeWidth={gridSize * hatchWidth * 2}
-                  strokeLinecap="square"
-                />
-              );
-            }
-            return null;
-          })}
-          {hatchOrganic && organicMaskElements}
-        </g>
+        <defs>
+        <filter id="splat-filter">
+          <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="2" result="noise" />
+          <feDisplacementMap in="SourceGraphic" in2="noise" scale="15" xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+        {renderedElements.filter((el: MapElement) => el.type === 'shovel').map((el: MapElement) => (
+          <mask id={`shovel-mask-${el.id}`} key={`shovel-mask-${el.id}`}>
+            <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
+            {el.properties?.brushShape === 'splat' || el.properties?.brushShape === 'pentagon' ? (
+              <g>
+                {filterAsteriskPoints(el.points, el.properties?.brushWidth || 10).map((p, i) => {
+                  const size = el.properties?.brushWidth || 10;
+                  const r = size / 2;
+                  if (el.properties?.brushShape === 'pentagon') {
+                    const pts = Array.from({length: 5}).map((_, j) => {
+                       const angle = (j * 2 * Math.PI) / 5 - Math.PI / 2;
+                       return `${r * Math.cos(angle)},${r * Math.sin(angle)}`;
+                    }).join(' ');
+                    return <polygon key={`pent-${el.id}-${i}`} points={pts} fill="white" transform={`translate(${p.x}, ${p.y})`} />;
+                  } else {
+                    return (
+                      <g key={`splat-${el.id}-${i}`} transform={`translate(${p.x}, ${p.y})`}>
+                         <line x1={-r} y1={0} x2={r} y2={0} stroke="white" strokeWidth={size/5} strokeLinecap="round" />
+                         <line x1={-r*0.5} y1={-r*0.866} x2={r*0.5} y2={r*0.866} stroke="white" strokeWidth={size/5} strokeLinecap="round" />
+                         <line x1={-r*0.5} y1={r*0.866} x2={r*0.5} y2={-r*0.866} stroke="white" strokeWidth={size/5} strokeLinecap="round" />
+                      </g>
+                    );
+                  }
+                })}
+              </g>
+            ) : (
+              <path 
+                d={getSmoothPath(el.points)} 
+                stroke="white" 
+                fill="none" 
+                strokeWidth={el.properties?.brushWidth || 10} 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+              />
+            )}
+          </mask>
+        ))}
+        {[0, 1, 2, 3].map(layerIndex => {
+          const layerRenderedElements = renderedElements.filter(el => (el.layer ?? 0) === layerIndex);
 
-        {/* Layer 2: Room Floor (White rects) */}
-        <g>
-          {renderedElements.map((el: MapElement) => {
-            if (el.type === 'room' || el.type === 'interior') {
-              const w = el.points[1].x - el.points[0].x;
-              const h = el.points[1].y - el.points[0].y;
-              return (
-                <rect 
-                  key={`floor-${el.id}`}
-                  x={el.points[0].x} 
-                  y={el.points[0].y} 
-                  width={w} 
-                  height={h} 
-                  fill="white" 
-                />
-              );
-            }
-            return null;
-          })}
-        </g>
+          return (
+            <g id={`layer-${layerIndex}-content`} key={`layer-def-${layerIndex}`}>
+              <defs>
+                <mask id={`room-mask-${layerIndex}`}>
+                  <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
+                  {layerRenderedElements.map((el: MapElement) => {
+                    if (el.type === 'room' || el.type === 'interior') {
+                      const w = el.points[1].x - el.points[0].x;
+                      const h = el.points[1].y - el.points[0].y;
+                      return <rect key={`mask-${el.id}`} x={el.points[0].x} y={el.points[0].y} width={w} height={h} fill="white" />;
+                    }
+                    return null;
+                  })}
+                </mask>
 
-        {/* Layer 3: Room Grid */}
-        <g>
-          {renderedElements.map((el: MapElement) => {
-              if (el.type === 'room' || el.type === 'interior') {
+                <mask id={`fill-mask-${layerIndex}`}>
+                  <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
+                  {layerRenderedElements.map((el: MapElement) => {
+                    if (el.type === 'fill' || el.type === 'unfill') {
+                      const w = el.points[1].x - el.points[0].x;
+                      const h = el.points[1].y - el.points[0].y;
+                      return <rect key={`fill-mask-${el.id}`} x={el.points[0].x} y={el.points[0].y} width={w} height={h} fill={el.type === 'fill' ? "white" : "black"} />;
+                    }
+                    return null;
+                  })}
+                </mask>
+
+                <mask id={`floor-mask-${layerIndex}`}>
+                  <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+                  {layerRenderedElements.map((el: MapElement) => {
+                    if (el.type === 'interior') {
+                      const w = el.points[1].x - el.points[0].x;
+                      const h = el.points[1].y - el.points[0].y;
+                      return <rect key={`floor-hole-${el.id}`} x={el.points[0].x} y={el.points[0].y} width={w} height={h} fill="black" />;
+                    }
+                    return null;
+                  })}
+                </mask>
+              </defs>
+
+          {/* Layer 1: Dyson Hatch (All sides) */}
+          {showHatch && (
+            <g opacity={0.8} filter={hatchStyle === 'soft-border' ? 'url(#soft-blur)' : undefined} mask="url(#global-anti-room-mask)">
+              {!hatchOrganic && layerRenderedElements.map((el: MapElement) => {
+                if (el.type === 'room' || el.type === 'interior') {
+                  const w = el.points[1].x - el.points[0].x;
+                  const h = el.points[1].y - el.points[0].y;
+                  return (
+                    <rect 
+                      key={`hatch-${el.id}`}
+                      x={el.points[0].x} 
+                      y={el.points[0].y} 
+                      width={w} 
+                      height={h} 
+                      fill="none"
+                      stroke={hatchStyle === 'soft-border' ? softBorderColor : `url(#${hatchStyle})`}
+                      strokeWidth={gridSize * hatchWidth * 2} 
+                      strokeLinejoin="round" 
+                    />
+                  );
+                }
+                if (el.type === 'wall') {
+                  return (
+                    <line
+                      key={`hatch-${el.id}`}
+                      x1={el.points[0].x} y1={el.points[0].y}
+                      x2={el.points[1].x} y2={el.points[1].y}
+                      stroke={hatchStyle === 'soft-border' ? softBorderColor : `url(#${hatchStyle})`}
+                      strokeWidth={gridSize * hatchWidth * 2}
+                      strokeLinecap="square"
+                    />
+                  );
+                }
+                return null;
+              })}
+              {hatchOrganic && layerOrganicMaskElements[layerIndex]}
+            </g>
+          )}
+
+          {/* Layer 2: Room Floor (White rects) */}
+          <g mask={`url(#floor-mask-${layerIndex})`}>
+            {layerRenderedElements.map((el: MapElement) => {
+              if (el.type === 'room') {
                 const w = el.points[1].x - el.points[0].x;
                 const h = el.points[1].y - el.points[0].y;
                 return (
                   <rect 
-                    key={`grid-${el.id}`}
+                    key={`floor-${el.id}`}
                     x={el.points[0].x} 
                     y={el.points[0].y} 
                     width={w} 
                     height={h} 
-                    fill="url(#room-grid)" 
+                    fill="transparent" 
                   />
                 );
               }
@@ -887,381 +968,530 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
             })}
           </g>
 
-        {/* Layer 3.5: Fill Tool (Negative Space) */}
-        <g mask="url(#fill-mask)">
-          <rect x="-10000" y="-10000" width="20000" height="20000" fill="#f8fafc" />
-          <rect x="-10000" y="-10000" width="20000" height="20000" fill={`url(#${hatchStyle})`} />
-        </g>
+          {/* Layer 3: Room Grid */}
+          {showGrid && (
+            <g>
+              {layerRenderedElements.map((el: MapElement) => {
+                  if (el.type === 'room' || el.type === 'interior') {
+                    const w = el.points[1].x - el.points[0].x;
+                    const h = el.points[1].y - el.points[0].y;
+                    return (
+                      <rect 
+                        key={`grid-${el.id}`}
+                        x={el.points[0].x} 
+                        y={el.points[0].y} 
+                        width={w} 
+                        height={h} 
+                        fill="url(#room-grid)" 
+                      />
+                    );
+                  }
+                  return null;
+                })}
+              </g>
+          )}
 
-        {/* Layer 3.8: Stairs */}
-        <g>
-          {renderedElements.map((el: MapElement) => {
-            if (el.type === 'stair' || el.type === 'stair-depth' || el.type === 'stair-perspective') {
-              const start = el.points[0];
-              const end = el.points[1];
-              const minX = Math.min(start.x, end.x);
-              const maxX = Math.max(start.x, end.x);
-              const minY = Math.min(start.y, end.y);
-              const maxY = Math.max(start.y, end.y);
-              const fullW = maxX - minX;
-              const fullH = maxY - minY;
-              const isVertical = fullH > fullW; 
-              
-              if (el.type === 'stair') {
-                const lines = [];
-                const maxShrink = isVertical ? (fullW * 0.25) : (fullH * 0.25);
-                const currentSteps = el.properties?.stairSteps ?? stairSteps;
-                const stepSize = isVertical ? fullH / currentSteps : fullW / currentSteps;
+          {/* Layer 3.5: Fill Tool (Negative Space) */}
+          <g mask={`url(#fill-mask-${layerIndex})`}>
+            <rect x="-10000" y="-10000" width="20000" height="20000" fill="#f8fafc" />
+            <rect x="-10000" y="-10000" width="20000" height="20000" fill={`url(#${hatchStyle})`} />
+          </g>
+
+          {/* Layer 3.8: Stairs */}
+          <g>
+            {layerRenderedElements.map((el: MapElement) => {
+              if (el.type === 'stair' || el.type === 'stair-depth' || el.type === 'stair-perspective') {
+                const start = el.points[0];
+                const end = el.points[1];
+                const minX = Math.min(start.x, end.x);
+                const maxX = Math.max(start.x, end.x);
+                const minY = Math.min(start.y, end.y);
+                const maxY = Math.max(start.y, end.y);
+                const fullW = maxX - minX;
+                const fullH = maxY - minY;
+                const isVertical = fullH > fullW; 
                 
-                let pointsStr = '';
-                if (isVertical) {
-                  pointsStr = `${minX},${start.y} ${maxX},${start.y} ${maxX - maxShrink},${end.y} ${minX + maxShrink},${end.y}`;
-                  const dir = start.y < end.y ? 1 : -1;
-                  for (let i = 1; i * stepSize < fullH; i++) {
-                    const y = start.y + (i * stepSize * dir);
-                    const progress = (i * stepSize) / fullH;
-                    const shrink = progress * maxShrink;
-                    lines.push(<line key={y} x1={minX + shrink} y1={y} x2={maxX - shrink} y2={y} stroke="black" strokeWidth="1.5" />);
+                if (el.type === 'stair') {
+                  const lines = [];
+                  const maxShrink = isVertical ? (fullW * 0.25) : (fullH * 0.25);
+                  const currentSteps = el.properties?.stairSteps ?? stairSteps;
+                  const stepSize = isVertical ? fullH / currentSteps : fullW / currentSteps;
+                  
+                  let pointsStr = '';
+                  if (isVertical) {
+                    pointsStr = `${minX},${start.y} ${maxX},${start.y} ${maxX - maxShrink},${end.y} ${minX + maxShrink},${end.y}`;
+                    const dir = start.y < end.y ? 1 : -1;
+                    for (let i = 1; i * stepSize < fullH; i++) {
+                      const y = start.y + (i * stepSize * dir);
+                      const progress = (i * stepSize) / fullH;
+                      const shrink = progress * maxShrink;
+                      lines.push(<line key={y} x1={minX + shrink} y1={y} x2={maxX - shrink} y2={y} stroke="black" strokeWidth="1.5" />);
+                    }
+                  } else {
+                    pointsStr = `${start.x},${minY} ${start.x},${maxY} ${end.x},${maxY - maxShrink} ${end.x},${minY + maxShrink}`;
+                    const dir = start.x < end.x ? 1 : -1;
+                    for (let i = 1; i * stepSize < fullW; i++) {
+                      const x = start.x + (i * stepSize * dir);
+                      const progress = (i * stepSize) / fullW;
+                      const shrink = progress * maxShrink;
+                      lines.push(<line key={x} x1={x} y1={minY + shrink} x2={x} y2={maxY - shrink} stroke="black" strokeWidth="1.5" />);
+                    }
                   }
-                } else {
-                  pointsStr = `${start.x},${minY} ${start.x},${maxY} ${end.x},${maxY - maxShrink} ${end.x},${minY + maxShrink}`;
-                  const dir = start.x < end.x ? 1 : -1;
-                  for (let i = 1; i * stepSize < fullW; i++) {
-                    const x = start.x + (i * stepSize * dir);
-                    const progress = (i * stepSize) / fullW;
-                    const shrink = progress * maxShrink;
-                    lines.push(<line key={x} x1={x} y1={minY + shrink} x2={x} y2={maxY - shrink} stroke="black" strokeWidth="1.5" />);
+                  
+                  return (
+                    <g key={`stair-${el.id}`}>
+                      <polygon points={pointsStr} fill="white" stroke="black" strokeWidth="1.5" strokeLinejoin="round" />
+                      {lines}
+                    </g>
+                  );
+                } else if (el.type === 'stair-depth') {
+                  const lines = [];
+                  const currentSteps = el.properties?.stairSteps ?? stairSteps;
+                  if (isVertical) {
+                    const dir = start.y < end.y ? 1 : -1;
+                    const numSteps = Math.max(2, currentSteps);
+                    const a = fullH / (0.6 * numSteps);
+                    const d = (0.8 * a) / (numSteps - 1);
+                    let currentY = start.y;
+                    const stepLines = [];
+                    const shadowLines = [];
+                    for (let i = 0; i < numSteps; i++) {
+                      const prevY = currentY;
+                      if (i === numSteps - 1) {
+                        currentY = end.y;
+                      } else {
+                        const stepDepth = a - i * d;
+                        currentY += stepDepth * dir;
+                        stepLines.push(<line key={`hs-${i}`} x1={minX} y1={currentY + 3.75 * dir} x2={maxX} y2={currentY + 3.75 * dir} stroke="rgba(0,0,0,0.15)" strokeWidth="6" />);
+                        stepLines.push(<line key={`h-${i}`} x1={minX} y1={currentY} x2={maxX} y2={currentY} stroke="black" strokeWidth="1.5" />);
+                      }
+
+                      if (i >= 1) {
+                        const progress = i / (numSteps - 1);
+                        const opacity = 0.05 + (progress * 0.45);
+                        const shadowWidth = 6;
+                        const halfW = shadowWidth / 2;
+                        shadowLines.push(<line key={`sl-${i}`} x1={minX + halfW} y1={prevY} x2={minX + halfW} y2={currentY} stroke={`rgba(0,0,0,${opacity})`} strokeWidth={shadowWidth} />);
+                        shadowLines.push(<line key={`sr-${i}`} x1={maxX - halfW} y1={prevY} x2={maxX - halfW} y2={currentY} stroke={`rgba(0,0,0,${opacity})`} strokeWidth={shadowWidth} />);
+                      }
+                    }
+                    lines.push(...shadowLines, ...stepLines);
+                  } else {
+                    const dir = start.x < end.x ? 1 : -1;
+                    const numSteps = Math.max(2, currentSteps);
+                    const a = fullW / (0.6 * numSteps);
+                    const d = (0.8 * a) / (numSteps - 1);
+                    let currentX = start.x;
+                    const stepLines = [];
+                    const shadowLines = [];
+                    for (let i = 0; i < numSteps; i++) {
+                      const prevX = currentX;
+                      if (i === numSteps - 1) {
+                        currentX = end.x;
+                      } else {
+                        const stepDepth = a - i * d;
+                        currentX += stepDepth * dir;
+                        stepLines.push(<line key={`vs-${i}`} x1={currentX + 3.75 * dir} y1={minY} x2={currentX + 3.75 * dir} y2={maxY} stroke="rgba(0,0,0,0.15)" strokeWidth="6" />);
+                        stepLines.push(<line key={`v-${i}`} x1={currentX} y1={minY} x2={currentX} y2={maxY} stroke="black" strokeWidth="1.5" />);
+                      }
+
+                      if (i >= 1) {
+                        const progress = i / (numSteps - 1);
+                        const opacity = 0.05 + (progress * 0.45);
+                        const shadowWidth = 6;
+                        const halfW = shadowWidth / 2;
+                        shadowLines.push(<line key={`st-${i}`} x1={prevX} y1={minY + halfW} x2={currentX} y2={minY + halfW} stroke={`rgba(0,0,0,${opacity})`} strokeWidth={shadowWidth} />);
+                        shadowLines.push(<line key={`sb-${i}`} x1={prevX} y1={maxY - halfW} x2={currentX} y2={maxY - halfW} stroke={`rgba(0,0,0,${opacity})`} strokeWidth={shadowWidth} />);
+                      }
+                    }
+                    lines.push(...shadowLines, ...stepLines);
                   }
-                }
-                
-                return (
-                  <g key={`stair-${el.id}`}>
-                    <polygon points={pointsStr} fill="white" stroke="black" strokeWidth="1.5" strokeLinejoin="round" />
-                    {lines}
-                  </g>
-                );
-              } else if (el.type === 'stair-depth') {
-                const lines = [];
-                const currentSteps = el.properties?.stairSteps ?? stairSteps;
-                if (isVertical) {
-                  const dir = start.y < end.y ? 1 : -1;
-                  const numSteps = Math.max(2, currentSteps);
-                  const a = fullH / (0.6 * numSteps);
-                  const d = (0.8 * a) / (numSteps - 1);
-                  let currentY = start.y;
-                  const stepLines = [];
-                  const shadowLines = [];
-                  for (let i = 0; i < numSteps; i++) {
-                    const prevY = currentY;
-                    if (i === numSteps - 1) {
-                      currentY = end.y;
-                    } else {
+                  
+                  return (
+                    <g key={`stair-depth-${el.id}`}>
+                      <rect x={minX} y={minY} width={fullW} height={fullH} fill="white" stroke="black" strokeWidth="1.5" />
+                      {lines}
+                    </g>
+                  );
+                } else if (el.type === 'stair-perspective') {
+                  const lines = [];
+                  const maxShrink = isVertical ? (fullW * 0.25) : (fullH * 0.25);
+                  let pointsStr = '';
+
+                  if (isVertical) {
+                    pointsStr = `${minX},${start.y} ${maxX},${start.y} ${maxX - maxShrink},${end.y} ${minX + maxShrink},${end.y}`;
+                    const dir = start.y < end.y ? 1 : -1;
+                    const currentSteps = el.properties?.stairSteps ?? stairSteps;
+                    const numSteps = Math.max(2, currentSteps);
+                    const a = fullH / (0.6 * numSteps);
+                    const d = (0.8 * a) / (numSteps - 1);
+                    let currentY = start.y;
+                    for (let i = 0; i < numSteps - 1; i++) {
                       const stepDepth = a - i * d;
                       currentY += stepDepth * dir;
-                      stepLines.push(<line key={`hs-${i}`} x1={minX} y1={currentY + 3.75 * dir} x2={maxX} y2={currentY + 3.75 * dir} stroke="rgba(0,0,0,0.15)" strokeWidth="6" />);
-                      stepLines.push(<line key={`h-${i}`} x1={minX} y1={currentY} x2={maxX} y2={currentY} stroke="black" strokeWidth="1.5" />);
+                      const progress = Math.abs(currentY - start.y) / fullH;
+                      const shrink = progress * maxShrink;
+                      lines.push(<line key={`hs-${i}`} x1={minX + shrink} y1={currentY + 3.75 * dir} x2={maxX - shrink} y2={currentY + 3.75 * dir} stroke="rgba(0,0,0,0.15)" strokeWidth="6" />);
+                      lines.push(<line key={`h-${i}`} x1={minX + shrink} y1={currentY} x2={maxX - shrink} y2={currentY} stroke="black" strokeWidth="1.5" />);
                     }
-
-                    if (i >= 1) {
-                      const progress = i / (numSteps - 1);
-                      const opacity = 0.05 + (progress * 0.45);
-                      const shadowWidth = 6;
-                      const halfW = shadowWidth / 2;
-                      shadowLines.push(<line key={`sl-${i}`} x1={minX + halfW} y1={prevY} x2={minX + halfW} y2={currentY} stroke={`rgba(0,0,0,${opacity})`} strokeWidth={shadowWidth} />);
-                      shadowLines.push(<line key={`sr-${i}`} x1={maxX - halfW} y1={prevY} x2={maxX - halfW} y2={currentY} stroke={`rgba(0,0,0,${opacity})`} strokeWidth={shadowWidth} />);
-                    }
-                  }
-                  lines.push(...shadowLines, ...stepLines);
-                } else {
-                  const dir = start.x < end.x ? 1 : -1;
-                  const numSteps = Math.max(2, currentSteps);
-                  const a = fullW / (0.6 * numSteps);
-                  const d = (0.8 * a) / (numSteps - 1);
-                  let currentX = start.x;
-                  const stepLines = [];
-                  const shadowLines = [];
-                  for (let i = 0; i < numSteps; i++) {
-                    const prevX = currentX;
-                    if (i === numSteps - 1) {
-                      currentX = end.x;
-                    } else {
+                  } else {
+                    pointsStr = `${start.x},${minY} ${start.x},${maxY} ${end.x},${maxY - maxShrink} ${end.x},${minY + maxShrink}`;
+                    const dir = start.x < end.x ? 1 : -1;
+                    const currentSteps = el.properties?.stairSteps ?? stairSteps;
+                    const numSteps = Math.max(2, currentSteps);
+                    const a = fullW / (0.6 * numSteps);
+                    const d = (0.8 * a) / (numSteps - 1);
+                    let currentX = start.x;
+                    for (let i = 0; i < numSteps - 1; i++) {
                       const stepDepth = a - i * d;
                       currentX += stepDepth * dir;
-                      stepLines.push(<line key={`vs-${i}`} x1={currentX + 3.75 * dir} y1={minY} x2={currentX + 3.75 * dir} y2={maxY} stroke="rgba(0,0,0,0.15)" strokeWidth="6" />);
-                      stepLines.push(<line key={`v-${i}`} x1={currentX} y1={minY} x2={currentX} y2={maxY} stroke="black" strokeWidth="1.5" />);
-                    }
-
-                    if (i >= 1) {
-                      const progress = i / (numSteps - 1);
-                      const opacity = 0.05 + (progress * 0.45);
-                      const shadowWidth = 6;
-                      const halfW = shadowWidth / 2;
-                      shadowLines.push(<line key={`st-${i}`} x1={prevX} y1={minY + halfW} x2={currentX} y2={minY + halfW} stroke={`rgba(0,0,0,${opacity})`} strokeWidth={shadowWidth} />);
-                      shadowLines.push(<line key={`sb-${i}`} x1={prevX} y1={maxY - halfW} x2={currentX} y2={maxY - halfW} stroke={`rgba(0,0,0,${opacity})`} strokeWidth={shadowWidth} />);
+                      const progress = Math.abs(currentX - start.x) / fullW;
+                      const shrink = progress * maxShrink;
+                      lines.push(<line key={`vs-${i}`} x1={currentX + 3.75 * dir} y1={minY + shrink} x2={currentX + 3.75 * dir} y2={maxY - shrink} stroke="rgba(0,0,0,0.15)" strokeWidth="6" />);
+                      lines.push(<line key={`v-${i}`} x1={currentX} y1={minY + shrink} x2={currentX} y2={maxY - shrink} stroke="black" strokeWidth="1.5" />);
                     }
                   }
-                  lines.push(...shadowLines, ...stepLines);
+                  
+                  return (
+                    <g key={`stair-perspective-${el.id}`}>
+                      <polygon points={pointsStr} fill="white" stroke="black" strokeWidth="1.5" strokeLinejoin="round" />
+                      {lines}
+                    </g>
+                  );
                 }
-                
-                return (
-                  <g key={`stair-depth-${el.id}`}>
-                    <rect x={minX} y={minY} width={fullW} height={fullH} fill="white" stroke="black" strokeWidth="1.5" />
-                    {lines}
-                  </g>
-                );
-              } else if (el.type === 'stair-perspective') {
-                const lines = [];
-                const maxShrink = isVertical ? (fullW * 0.25) : (fullH * 0.25);
-                let pointsStr = '';
+              }
+              return null;
+            })}
+          </g>
 
-                if (isVertical) {
-                  pointsStr = `${minX},${start.y} ${maxX},${start.y} ${maxX - maxShrink},${end.y} ${minX + maxShrink},${end.y}`;
-                  const dir = start.y < end.y ? 1 : -1;
-                  const currentSteps = el.properties?.stairSteps ?? stairSteps;
-                  const numSteps = Math.max(2, currentSteps);
-                  const a = fullH / (0.6 * numSteps);
-                  const d = (0.8 * a) / (numSteps - 1);
-                  let currentY = start.y;
-                  for (let i = 0; i < numSteps - 1; i++) {
-                    const stepDepth = a - i * d;
-                    currentY += stepDepth * dir;
-                    const progress = Math.abs(currentY - start.y) / fullH;
-                    const shrink = progress * maxShrink;
-                    lines.push(<line key={`hs-${i}`} x1={minX + shrink} y1={currentY + 3.75 * dir} x2={maxX - shrink} y2={currentY + 3.75 * dir} stroke="rgba(0,0,0,0.15)" strokeWidth="6" />);
-                    lines.push(<line key={`h-${i}`} x1={minX + shrink} y1={currentY} x2={maxX - shrink} y2={currentY} stroke="black" strokeWidth="1.5" />);
-                  }
-                } else {
-                  pointsStr = `${start.x},${minY} ${start.x},${maxY} ${end.x},${maxY - maxShrink} ${end.x},${minY + maxShrink}`;
-                  const dir = start.x < end.x ? 1 : -1;
-                  const currentSteps = el.properties?.stairSteps ?? stairSteps;
-                  const numSteps = Math.max(2, currentSteps);
-                  const a = fullW / (0.6 * numSteps);
-                  const d = (0.8 * a) / (numSteps - 1);
-                  let currentX = start.x;
-                  for (let i = 0; i < numSteps - 1; i++) {
-                    const stepDepth = a - i * d;
-                    currentX += stepDepth * dir;
-                    const progress = Math.abs(currentX - start.x) / fullW;
-                    const shrink = progress * maxShrink;
-                    lines.push(<line key={`vs-${i}`} x1={currentX + 3.75 * dir} y1={minY + shrink} x2={currentX + 3.75 * dir} y2={maxY - shrink} stroke="rgba(0,0,0,0.15)" strokeWidth="6" />);
-                    lines.push(<line key={`v-${i}`} x1={currentX} y1={minY + shrink} x2={currentX} y2={maxY - shrink} stroke="black" strokeWidth="1.5" />);
-                  }
-                }
-                
+          {/* Layer 4: Shadow (Masked to room interior) */}
+          <g mask={`url(#room-mask-${layerIndex})`}>
+            {layerMergedLines[layerIndex].map((line, i) => (
+              <line
+                key={`merged-shadow-${i}`}
+                x1={line.x1} y1={line.y1}
+                x2={line.x2} y2={line.y2}
+                stroke={`rgba(0,0,0,${shadowIntensity})`}
+                strokeWidth={shadowThickness}
+                strokeLinecap="round"
+                transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`}
+              />
+            ))}
+            {layerRenderedElements.map((el: MapElement) => {
+              if (el.type === 'interior') {
+                const w = el.points[1].x - el.points[0].x;
+                const h = el.points[1].y - el.points[0].y;
                 return (
-                  <g key={`stair-perspective-${el.id}`}>
-                    <polygon points={pointsStr} fill="white" stroke="black" strokeWidth="1.5" strokeLinejoin="round" />
-                    {lines}
-                  </g>
+                  <rect 
+                    key={`shadow-${el.id}`}
+                    x={el.points[0].x} 
+                    y={el.points[0].y} 
+                    width={w} 
+                    height={h} 
+                    fill="none"
+                    stroke={`rgba(0,0,0,${shadowIntensity})`}
+                    strokeWidth={shadowThickness}
+                    strokeLinejoin="round"
+                    transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`}
+                  />
                 );
               }
-            }
-            return null;
-          })}
-        </g>
+              if (el.type === 'wall') {
+                return (
+                  <line
+                    key={`shadow-${el.id}`}
+                    x1={el.points[0].x} y1={el.points[0].y}
+                    x2={el.points[1].x} y2={el.points[1].y}
+                    stroke={`rgba(0,0,0,${shadowIntensity})`}
+                    strokeWidth={shadowThickness}
+                    strokeLinecap="round"
+                    transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`}
+                  />
+                );
+              }
+              return null;
+            })}
+          </g>
 
-        {/* Layer 4: Shadow (Masked to room interior) */}
-        <g mask="url(#room-mask)">
-          {mergedLines.map((line, i) => (
-            <line
-              key={`merged-shadow-${i}`}
-              x1={line.x1} y1={line.y1}
-              x2={line.x2} y2={line.y2}
-              stroke="rgba(0,0,0,0.15)"
-              strokeWidth="8"
-              strokeLinecap="round"
-              transform="translate(4, 4)"
-            />
-          ))}
-          {renderedElements.map((el: MapElement) => {
-            if (el.type === 'interior') {
-              const w = el.points[1].x - el.points[0].x;
-              const h = el.points[1].y - el.points[0].y;
-              return (
-                <rect 
-                  key={`shadow-${el.id}`}
-                  x={el.points[0].x} 
-                  y={el.points[0].y} 
-                  width={w} 
-                  height={h} 
-                  fill="none"
-                  stroke="rgba(0,0,0,0.15)"
-                  strokeWidth="8"
-                  strokeLinejoin="round"
-                  transform="translate(4, 4)"
-                />
-              );
-            }
-            if (el.type === 'wall') {
-              return (
-                <line
-                  key={`shadow-${el.id}`}
-                  x1={el.points[0].x} y1={el.points[0].y}
-                  x2={el.points[1].x} y2={el.points[1].y}
-                  stroke="rgba(0,0,0,0.15)"
-                  strokeWidth="8"
-                  strokeLinecap="round"
-                  transform="translate(4, 4)"
-                />
-              );
-            }
-            return null;
-          })}
-        </g>
+          {/* Layer 5: Walls (RoughJS) */}
+          <g>
+            {layerMergedRoughPaths[layerIndex].map((path, i) => (
+              <path key={`merged-wall-${i}`} d={path} className="dyson-wall" fill="none" />
+            ))}
+            {layerRenderedElements.map((el: MapElement) => {
+              if (el.type === 'wall') {
+                const seedStr = el.id.toString();
+                let hash = 0;
+                for (let i = 0; i < seedStr.length; i++) hash = Math.imul(31, hash) + seedStr.charCodeAt(i) | 0;
+                const seed = Math.abs(hash) || 1;
+                const drawable = generator.line(el.points[0].x, el.points[0].y, el.points[1].x, el.points[1].y, { roughness: 1.5, strokeWidth: 2.5, seed });
+                const path = getRoughPath(drawable);
+                return <path key={`wall-${el.id}`} d={path} className="dyson-wall" fill="none" />;
+              }
+              return null;
+            })}
+          </g>
 
-        {/* Layer 5: Walls (RoughJS) */}
-        <g>
-          {mergedRoughPaths.map((path, i) => (
-            <path key={`merged-wall-${i}`} d={path} className="dyson-wall" fill="none" />
-          ))}
-          {renderedElements.map((el: MapElement) => {
-            if (el.type === 'wall') {
-              const seedStr = el.id.toString();
-              let hash = 0;
-              for (let i = 0; i < seedStr.length; i++) hash = Math.imul(31, hash) + seedStr.charCodeAt(i) | 0;
-              const seed = Math.abs(hash) || 1;
-              const drawable = generator.line(el.points[0].x, el.points[0].y, el.points[1].x, el.points[1].y, { roughness: 1.5, strokeWidth: 2.5, seed });
-              const path = getRoughPath(drawable);
-              return <path key={`wall-${el.id}`} d={path} className="dyson-wall" fill="none" />;
-            }
-            return null;
-          })}
-        </g>
+          {/* Layer 6: Doors */}
+          <g>
+            {layerRenderedElements.map((el: MapElement) => {
+              if (el.type === 'door' || el.type === 'door-double' || el.type === 'door-secret') {
+                const isHorizontal = Math.abs(el.points[1].x - el.points[0].x) >= Math.abs(el.points[1].y - el.points[0].y);
+                const minX = Math.min(el.points[0].x, el.points[1].x);
+                const maxX = Math.max(el.points[0].x, el.points[1].x);
+                const minY = Math.min(el.points[0].y, el.points[1].y);
+                const maxY = Math.max(el.points[0].y, el.points[1].y);
+                
+                const doorThickness = 16;
+                const doorInset = 10;
 
-        {/* Layer 6: Doors */}
-        <g>
-          {renderedElements.map((el: MapElement) => {
-            if (el.type === 'door' || el.type === 'door-double' || el.type === 'door-secret') {
-              const isHorizontal = el.points[0].y === el.points[1].y;
-              const minX = Math.min(el.points[0].x, el.points[1].x);
-              const maxX = Math.max(el.points[0].x, el.points[1].x);
-              const minY = Math.min(el.points[0].y, el.points[1].y);
-              const maxY = Math.max(el.points[0].y, el.points[1].y);
-              
-              const doorThickness = 16;
-              const doorInset = 10;
+                if (el.type === 'door-secret') {
+                  const cx = minX + (maxX - minX) / 2;
+                  const cy = minY + (maxY - minY) / 2;
+                  return (
+                    <g key={`door-${el.id}`}>
+                      <circle cx={cx} cy={cy} r={12} fill="white" stroke="black" strokeWidth="1.5" strokeDasharray="2,2" />
+                      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fontSize="14" fontWeight="bold" fill="black">S</text>
+                    </g>
+                  );
+                }
 
-              if (el.type === 'door-secret') {
-                const cx = minX + (maxX - minX) / 2;
-                const cy = minY + (maxY - minY) / 2;
                 return (
                   <g key={`door-${el.id}`}>
-                    <circle cx={cx} cy={cy} r={12} fill="white" stroke="black" strokeWidth="1.5" strokeDasharray="2,2" />
-                    <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fontSize="14" fontWeight="bold" fill="black">S</text>
+                    {/* Erase underlying wall and shadow only under the door */}
+                    <line 
+                      x1={isHorizontal ? minX + doorInset : minX} 
+                      y1={isHorizontal ? minY : minY + doorInset} 
+                      x2={isHorizontal ? maxX - doorInset : maxX} 
+                      y2={isHorizontal ? maxY : maxY - doorInset} 
+                      stroke="white" 
+                      strokeWidth="12" 
+                    />
+                    {/* Draw door box */}
+                    <rect 
+                      x={isHorizontal ? minX + doorInset : minX - doorThickness/2} 
+                      y={isHorizontal ? minY - doorThickness/2 : minY + doorInset} 
+                      width={isHorizontal ? (maxX - minX) - (doorInset * 2) : doorThickness} 
+                      height={isHorizontal ? doorThickness : (maxY - minY) - (doorInset * 2)} 
+                      fill="white" 
+                      stroke="black" 
+                      strokeWidth="1.5" 
+                    />
+                    {el.type === 'door-double' && (
+                      <line 
+                        x1={isHorizontal ? minX + (maxX - minX) / 2 : minX - doorThickness/2} 
+                        y1={isHorizontal ? minY - doorThickness/2 : minY + (maxY - minY) / 2}
+                        x2={isHorizontal ? minX + (maxX - minX) / 2 : minX + doorThickness/2}
+                        y2={isHorizontal ? minY + doorThickness/2 : minY + (maxY - minY) / 2}
+                        stroke="black"
+                        strokeWidth="1.5"
+                      />
+                    )}
                   </g>
                 );
               }
+              return null;
+            })}
+          </g>
 
-              return (
-                <g key={`door-${el.id}`}>
-                  {/* Erase underlying wall and shadow only under the door */}
-                  <line 
-                    x1={isHorizontal ? minX + doorInset : minX} 
-                    y1={isHorizontal ? minY : minY + doorInset} 
-                    x2={isHorizontal ? maxX - doorInset : maxX} 
-                    y2={isHorizontal ? maxY : maxY - doorInset} 
-                    stroke="white" 
-                    strokeWidth="12" 
-                  />
-                  {/* Draw door box */}
-                  <rect 
-                    x={isHorizontal ? minX + doorInset : minX - doorThickness/2} 
-                    y={isHorizontal ? minY - doorThickness/2 : minY + doorInset} 
-                    width={isHorizontal ? (maxX - minX) - (doorInset * 2) : doorThickness} 
-                    height={isHorizontal ? doorThickness : (maxY - minY) - (doorInset * 2)} 
-                    fill="white" 
-                    stroke="black" 
-                    strokeWidth="1.5" 
-                  />
-                  {el.type === 'door-double' && (
-                    <line 
-                      x1={isHorizontal ? minX + (maxX - minX) / 2 : minX - doorThickness/2} 
-                      y1={isHorizontal ? minY - doorThickness/2 : minY + (maxY - minY) / 2}
-                      x2={isHorizontal ? minX + (maxX - minX) / 2 : minX + doorThickness/2}
-                      y2={isHorizontal ? minY + doorThickness/2 : minY + (maxY - minY) / 2}
+          {/* Layer 7: Decorations */}
+          <g>
+            {layerRenderedElements.map((el: MapElement) => {
+              if (el.type.startsWith('decoration-')) {
+                const minX = Math.min(...el.points.map(p => p.x));
+                const maxX = Math.max(...el.points.map(p => p.x));
+                const minY = Math.min(...el.points.map(p => p.y));
+                const maxY = Math.max(...el.points.map(p => p.y));
+                const width = maxX - minX;
+                const height = maxY - minY;
+                
+                if (width === 0 || height === 0) return null;
+                
+                if (el.type === 'decoration-circle') {
+                  return (
+                    <ellipse 
+                      key={`deco-${el.id}`}
+                      cx={minX + width/2}
+                      cy={minY + height/2}
+                      rx={width/2}
+                      ry={height/2}
+                      fill="white"
                       stroke="black"
                       strokeWidth="1.5"
                     />
-                  )}
-                </g>
-              );
-            }
-            return null;
-          })}
-        </g>
-
-        {/* Layer 7: Decorations */}
-        <g>
-          {renderedElements.map((el: MapElement) => {
-            if (el.type.startsWith('decoration-')) {
-              const minX = Math.min(...el.points.map(p => p.x));
-              const maxX = Math.max(...el.points.map(p => p.x));
-              const minY = Math.min(...el.points.map(p => p.y));
-              const maxY = Math.max(...el.points.map(p => p.y));
-              const width = maxX - minX;
-              const height = maxY - minY;
-              
-              if (width === 0 || height === 0) return null;
-              
-              if (el.type === 'decoration-circle') {
+                  );
+                }
+                
                 return (
-                  <ellipse 
+                  <rect 
                     key={`deco-${el.id}`}
-                    cx={minX + width/2}
-                    cy={minY + height/2}
-                    rx={width/2}
-                    ry={height/2}
+                    x={minX}
+                    y={minY}
+                    width={width}
+                    height={height}
                     fill="white"
                     stroke="black"
                     strokeWidth="1.5"
                   />
                 );
-              }
-              
-              return (
-                <rect 
-                  key={`deco-${el.id}`}
-                  x={minX}
-                  y={minY}
-                  width={width}
-                  height={height}
-                  fill="white"
-                  stroke="black"
-                  strokeWidth="1.5"
-                />
-              );
-            } else if (el.type === 'export-tile') {
-              const minX = Math.min(el.points[0].x, el.points[1].x);
-              const minY = Math.min(el.points[0].y, el.points[1].y);
-              const isSelected = selectedElementIds.includes(el.id);
-              return (
-                <g key={el.id} className="export-ignore" style={{ cursor: isSelected ? 'move' : 'pointer' }}>
-                  <rect
-                    x={minX}
-                    y={minY}
-                    width={144}
-                    height={144}
-                    fill={isSelected ? "rgba(59,130,246,0.1)" : "rgba(59,130,246,0.05)"}
-                    stroke="rgb(59,130,246)"
-                    strokeWidth="2"
-                    strokeDasharray="8 4"
-                  />
-                  <text
-                    x={minX + 4}
-                    y={minY - 6}
-                    fill="rgb(59,130,246)"
-                    fontSize="12"
-                    fontWeight="bold"
-                    className="select-none"
+              } else if (el.type === 'image') {
+                const minX = Math.min(el.points[0].x, el.points[1].x);
+                const minY = Math.min(el.points[0].y, el.points[1].y);
+                const w = Math.abs(el.points[1].x - el.points[0].x);
+                const h = Math.abs(el.points[1].y - el.points[0].y);
+                const isSelected = selectedElementIds.includes(el.id);
+                
+                return (
+                  <g 
+                    key={el.id} 
+                    style={{ cursor: isSelected ? 'move' : 'pointer' }}
+                    transform={el.properties?.rotation ? `rotate(${el.properties.rotation} ${el.properties.pivot?.x} ${el.properties.pivot?.y})` : undefined}
                   >
-                    Export Tile (144x144)
-                  </text>
-                </g>
-              );
-            }
-            return null;
-          })}
-        </g>
+                    <image 
+                      href={el.properties?.dataUrl} 
+                      x={minX} 
+                      y={minY} 
+                      width={w} 
+                      height={h} 
+                      preserveAspectRatio="none" 
+                    />
+                    {isSelected && (
+                      <rect 
+                        x={minX} y={minY} width={w} height={h} 
+                        fill="none" stroke="rgb(59,130,246)" strokeWidth="2" strokeDasharray="4 4" 
+                      />
+                    )}
+                  </g>
+                );
+              } else if (el.type === 'export-tile') {
+                const minX = Math.min(el.points[0].x, el.points[1].x);
+                const minY = Math.min(el.points[0].y, el.points[1].y);
+                const isSelected = selectedElementIds.includes(el.id);
+                return (
+                  <g key={el.id} className="export-ignore" style={{ cursor: isSelected ? 'move' : 'pointer' }}>
+                    <rect
+                      x={minX}
+                      y={minY}
+                      width={144}
+                      height={144}
+                      fill={isSelected ? "rgba(59,130,246,0.1)" : "rgba(59,130,246,0.05)"}
+                      stroke="rgb(59,130,246)"
+                      strokeWidth="2"
+                      strokeDasharray="8 4"
+                    />
+                    <text
+                      x={minX + 4}
+                      y={minY - 6}
+                      fill="rgb(59,130,246)"
+                      fontSize="12"
+                      fontWeight="bold"
+                      className="select-none"
+                    >
+                      Export Tile (144x144)
+                    </text>
+                  </g>
+                );
+              }
+              return null;
+            })}
+          </g>
+
+              {/* Layer 8: Brushes */}
+              <g>
+                {layerRenderedElements.map((el: MapElement) => {
+                  if (el.type === 'brush') {
+                    if (el.properties?.brushShape === 'splat' || el.properties?.brushShape === 'pentagon') {
+                      return (
+                        <g key={`brush-${el.id}`}>
+                          {filterAsteriskPoints(el.points, el.properties?.brushWidth || 10).map((p, i) => {
+                            const size = el.properties?.brushWidth || 10;
+                            const r = size / 2;
+                            const color = el.properties?.brushColor || 'black';
+                            if (el.properties?.brushShape === 'pentagon') {
+                              const pts = Array.from({length: 5}).map((_, j) => {
+                                 const angle = (j * 2 * Math.PI) / 5 - Math.PI / 2;
+                                 return `${r * Math.cos(angle)},${r * Math.sin(angle)}`;
+                              }).join(' ');
+                              return <polygon key={`pent-${el.id}-${i}`} points={pts} fill={color} transform={`translate(${p.x}, ${p.y})`} />;
+                            } else {
+                              return (
+                                <g key={`splat-${el.id}-${i}`} transform={`translate(${p.x}, ${p.y})`}>
+                                   <line x1={-r} y1={0} x2={r} y2={0} stroke={color} strokeWidth={size/5} strokeLinecap="round" />
+                                   <line x1={-r*0.5} y1={-r*0.866} x2={r*0.5} y2={r*0.866} stroke={color} strokeWidth={size/5} strokeLinecap="round" />
+                                   <line x1={-r*0.5} y1={r*0.866} x2={r*0.5} y2={-r*0.866} stroke={color} strokeWidth={size/5} strokeLinecap="round" />
+                                </g>
+                              );
+                            }
+                          })}
+                        </g>
+                      );
+                    }
+                    
+                    return (
+                      <path 
+                        key={`brush-${el.id}`}
+                        d={getSmoothPath(el.points)}
+                        stroke={el.properties?.brushColor || 'black'}
+                        strokeWidth={el.properties?.brushWidth || 10}
+                        fill="none"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    );
+                  }
+                  return null;
+                })}
+              </g>
+
+            </g>
+          );
+        })}
+          <mask id="global-room-mask">
+            <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
+            {renderedElements.map((el: MapElement) => {
+              if (el.type === 'room' || el.type === 'interior') {
+                const w = el.points[1].x - el.points[0].x;
+                const h = el.points[1].y - el.points[0].y;
+                return <rect key={`global-mask-${el.id}`} x={el.points[0].x} y={el.points[0].y} width={w} height={h} fill="white" />;
+              }
+              return null;
+            })}
+          </mask>
+          <mask id="global-anti-room-mask">
+            <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+            {renderedElements.map((el: MapElement) => {
+              if (el.type === 'room' || el.type === 'interior') {
+                const w = el.points[1].x - el.points[0].x;
+                const h = el.points[1].y - el.points[0].y;
+                return <rect key={`global-anti-mask-${el.id}`} x={el.points[0].x} y={el.points[0].y} width={w} height={h} fill="black" />;
+              }
+              return null;
+            })}
+          </mask>
+        </defs>
+        
+        {[0, 1, 2, 3].map(layerIndex => {
+          const shovelsTargetingThisLayer = renderedElements.filter(el => el.type === 'shovel' && (el.properties?.shovelTargetLayer ?? 0) === layerIndex);
+          
+          return (
+            <g key={`layer-${layerIndex}`} className={`map-layer-${layerIndex}`} mask={layerIndex === 0 ? "url(#global-anti-room-mask)" : undefined}>
+              {layerVisibility[layerIndex] && <use href={`#layer-${layerIndex}-content`} />}
+              {!layerVisibility[layerIndex] && shovelsTargetingThisLayer.map((el: MapElement) => (
+                <use 
+                  key={`shovel-use-${el.id}`} 
+                  href={`#layer-${layerIndex}-content`} 
+                  mask={`url(#shovel-mask-${el.id})`} 
+                />
+              ))}
+              {!layerVisibility[layerIndex] && layerIndex === 1 && (
+                <use 
+                  href={`#layer-${layerIndex}-content`} 
+                  mask="url(#global-room-mask)" 
+                />
+              )}
+            </g>
+          );
+        })}
 
         {/* Current Drawing Overlay */}
         {isDrawing && tool === 'export-tile' && (
@@ -1276,7 +1506,43 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
             strokeDasharray="4 4"
           />
         )}
-        {isDrawing && tool !== 'select' && tool !== 'rotate' && tool !== 'export-tile' && (
+        {isDrawing && (tool === 'brush' || tool === 'shovel') && currentDrawPath.length > 0 && (
+          brushShape === 'splat' || brushShape === 'pentagon' ? (
+            <g opacity={tool === 'shovel' ? 0.5 : 1} className="export-ignore">
+              {filterAsteriskPoints(currentDrawPath, brushWidth).map((p, i) => {
+                const r = brushWidth / 2;
+                const color = tool === 'brush' ? brushColor : 'black';
+                if (brushShape === 'pentagon') {
+                  const pts = Array.from({length: 5}).map((_, j) => {
+                     const angle = (j * 2 * Math.PI) / 5 - Math.PI / 2;
+                     return `${r * Math.cos(angle)},${r * Math.sin(angle)}`;
+                  }).join(' ');
+                  return <polygon key={`pent-live-${i}`} points={pts} fill={color} transform={`translate(${p.x}, ${p.y})`} />;
+                } else {
+                  return (
+                    <g key={`splat-live-${i}`} transform={`translate(${p.x}, ${p.y})`}>
+                       <line x1={-r} y1={0} x2={r} y2={0} stroke={color} strokeWidth={brushWidth/5} strokeLinecap="round" />
+                       <line x1={-r*0.5} y1={-r*0.866} x2={r*0.5} y2={r*0.866} stroke={color} strokeWidth={brushWidth/5} strokeLinecap="round" />
+                       <line x1={-r*0.5} y1={r*0.866} x2={r*0.5} y2={-r*0.866} stroke={color} strokeWidth={brushWidth/5} strokeLinecap="round" />
+                    </g>
+                  );
+                }
+              })}
+            </g>
+          ) : (
+            <path
+              d={getSmoothPath(currentDrawPath)}
+              stroke={tool === 'brush' ? brushColor : 'black'}
+              strokeWidth={brushWidth}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="export-ignore"
+              opacity={tool === 'shovel' ? 0.5 : 1}
+            />
+          )
+        )}
+        {isDrawing && tool !== 'select' && tool !== 'rotate' && tool !== 'export-tile' && tool !== 'brush' && tool !== 'shovel' && (
           <rect 
             className="export-ignore"
             x={tool.startsWith('decoration-') && snapToGrid ? startDrawPoint.x - Math.abs(currentDrawPoint.x - startDrawPoint.x) : Math.min(startDrawPoint.x, currentDrawPoint.x)} 
@@ -1290,7 +1556,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           />
         )}
         
-        {isDrawing && (tool === 'wall' || tool === 'door') && (
+        {isDrawing && (tool === 'wall' || tool.startsWith('door')) && (
           <line 
             x1={startDrawPoint.x} y1={startDrawPoint.y}
             x2={currentDrawPoint.x} y2={currentDrawPoint.y}
@@ -1319,7 +1585,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 strokeDasharray="5,5"
                 pointerEvents="none"
               />
-              {selectedElementIds.length === 1 && el.type.startsWith('decoration-') && (
+              {selectedElementIds.length === 1 && (el.type.startsWith('decoration-') || el.type === 'image') && (
                 <rect 
                   x={maxX - 5} 
                   y={maxY - 5} 
@@ -1351,6 +1617,11 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           />
         )}
       </g>
+      
+      {/* Global Grid Overlay */}
+      {showGrid && (
+        <rect width="100%" height="100%" fill="url(#global-grid)" pointerEvents="none" />
+      )}
     </svg>
     </div>
   );

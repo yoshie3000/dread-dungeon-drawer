@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import type { Segment } from './utils/dysonGenerator'
 
-export type ElementType = 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective';
-export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'door-double' | 'door-secret' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete' | 'export-region' | 'export-tile' | 'rotate' | 'decoration-square' | 'decoration-circle' | 'decoration-rectangle';
+export type ElementType = 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective' | 'image' | 'brush' | 'shovel';
+export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'door-double' | 'door-secret' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete' | 'export-region' | 'export-tile' | 'rotate' | 'decoration-square' | 'decoration-circle' | 'decoration-rectangle' | 'image' | 'brush' | 'shovel';
 
 export interface Point {
   x: number;
@@ -13,12 +13,19 @@ export interface MapElement {
   id: string;
   type: Tool;
   points: Point[]; // For rooms: top-left, bottom-right. For walls: line segments.
+  layer?: number;
   properties?: any;
 }
 
 interface MapState {
   tool: Tool;
   setTool: (tool: Tool) => void;
+  activeLayer: number;
+  setActiveLayer: (layer: number) => void;
+  layerVisibility: boolean[];
+  toggleLayerVisibility: (layer: number) => void;
+  layerLock: boolean[];
+  toggleLayerLock: (layer: number) => void;
   hatchStyle: any;
   setHatchStyle: (style: any) => void;
   softBorderColor: string;
@@ -31,8 +38,22 @@ interface MapState {
   setHatchOrganic: (organic: boolean) => void;
   hatchSmoothness: number;
   setHatchSmoothness: (smoothness: number) => void;
+  brushColor: string;
+  setBrushColor: (color: string) => void;
+  brushWidth: number;
+  setBrushWidth: (width: number) => void;
+  brushShape: 'round' | 'splat' | 'pentagon';
+  setBrushShape: (shape: 'round' | 'splat' | 'pentagon') => void;
+  brushSmoothness: number;
+  setBrushSmoothness: (smoothness: number) => void;
+  shovelTargetLayer: number;
+  setShovelTargetLayer: (layer: number) => void;
   stairSteps: number;
   setStairSteps: (steps: number) => void;
+  shadowThickness: number;
+  setShadowThickness: (thickness: number) => void;
+  shadowIntensity: number;
+  setShadowIntensity: (intensity: number) => void;
   snapToGrid: boolean;
   setSnapToGrid: (snap: boolean) => void;
   savedPatterns: (Segment[] | null)[];
@@ -53,6 +74,8 @@ interface MapState {
   viewState: { x: number, y: number, zoom: number };
   setViewState: (viewState: Partial<{x: number, y: number, zoom: number}>) => void;
   gridSize: number;
+  showHatch: boolean;
+  setShowHatch: (show: boolean) => void;
   showGrid: boolean;
   toggleGrid: () => void;
   setGridSize: (gridSize: number) => void;
@@ -61,6 +84,20 @@ interface MapState {
 export const useMapStore = create<MapState>((set) => ({
   tool: 'room',
   setTool: (tool) => set({ tool }),
+  activeLayer: 0,
+  setActiveLayer: (activeLayer) => set({ activeLayer }),
+  layerVisibility: [true, true, true, true],
+  toggleLayerVisibility: (layer) => set((state) => {
+    const newVis = [...state.layerVisibility];
+    newVis[layer] = !newVis[layer];
+    return { layerVisibility: newVis };
+  }),
+  layerLock: [false, false, false, false],
+  toggleLayerLock: (layer) => set((state) => {
+    const newLock = [...state.layerLock];
+    newLock[layer] = !newLock[layer];
+    return { layerLock: newLock };
+  }),
   hatchStyle: 'dyson-hatch',
   setHatchStyle: (hatchStyle) => set({ hatchStyle }),
   softBorderColor: 'rgba(0,0,0,0.625)',
@@ -75,6 +112,10 @@ export const useMapStore = create<MapState>((set) => ({
   setHatchSmoothness: (smoothness) => set({ hatchSmoothness: smoothness }),
   stairSteps: 10,
   setStairSteps: (stairSteps) => set({ stairSteps }),
+  shadowThickness: 8,
+  setShadowThickness: (shadowThickness) => set({ shadowThickness }),
+  shadowIntensity: 0.15,
+  setShadowIntensity: (shadowIntensity) => set({ shadowIntensity }),
   snapToGrid: true,
   setSnapToGrid: (snap) => set({ snapToGrid: snap }),
   savedPatterns: [null, null, null, null],
@@ -98,7 +139,7 @@ export const useMapStore = create<MapState>((set) => ({
   addElement: (element) => set((state) => ({ 
     pastElements: [...state.pastElements, state.elements],
     futureElements: [],
-    elements: [...state.elements, element] 
+    elements: [...state.elements, { layer: state.activeLayer, ...element }] 
   })),
   updateElement: (id, updated) => set((state) => ({
     pastElements: [...state.pastElements, state.elements],
@@ -134,6 +175,18 @@ export const useMapStore = create<MapState>((set) => ({
   setViewState: (viewState) => set((state) => ({ viewState: { ...state.viewState, ...viewState } })),
   gridSize: 50,
   setGridSize: (gridSize) => set({ gridSize }),
+  brushColor: '#000000',
+  setBrushColor: (brushColor) => set({ brushColor }),
+  brushWidth: 10,
+  setBrushWidth: (brushWidth) => set({ brushWidth }),
+  brushShape: 'round',
+  setBrushShape: (brushShape) => set({ brushShape }),
+  brushSmoothness: 0.5,
+  setBrushSmoothness: (brushSmoothness) => set({ brushSmoothness }),
+  shovelTargetLayer: 0,
+  setShovelTargetLayer: (shovelTargetLayer) => set({ shovelTargetLayer }),
+  showHatch: true,
+  setShowHatch: (showHatch) => set({ showHatch }),
   showGrid: true,
   toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
 }))

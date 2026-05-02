@@ -1,12 +1,47 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useMapStore } from './store';
-import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download, Undo2, Redo2, Crop, RotateCw, Columns, EyeOff, Circle, Box, RectangleHorizontal, Shapes, Grid } from 'lucide-react';
+import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download, Undo2, Redo2, Crop, RotateCw, Columns, Eye, EyeOff, Circle, Box, RectangleHorizontal, Shapes, Grid, Layers, Lock, Unlock, Upload, Paintbrush, Shovel } from 'lucide-react';
 import Canvas from './components/Canvas';
 import PatternEditor from './components/PatternEditor';
 import { generateDysonSegments, segmentsToPath } from './utils/dysonGenerator';
 
+const LAYER_NAMES = ['Hatch Layer', 'Floor Layer', 'Room Layer', 'Layer 3'];
+
 function App() {
-  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, snapToGrid, setSnapToGrid, showGrid, toggleGrid, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement } = useMapStore();
+  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, shadowThickness, setShadowThickness, shadowIntensity, setShadowIntensity, snapToGrid, setSnapToGrid, showGrid, toggleGrid, showHatch, setShowHatch, activeLayer, setActiveLayer, layerVisibility, toggleLayerVisibility, layerLock, toggleLayerLock, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement, addElement, setElements, setSelectedElementIds, brushColor, setBrushColor, brushWidth, setBrushWidth, brushShape, setBrushShape, brushSmoothness, setBrushSmoothness, shovelTargetLayer, setShovelTargetLayer } = useMapStore();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      if (dataUrl) {
+        const img = new Image();
+        img.onload = () => {
+          // Use the intrinsic width and height of the uploaded SVG
+          const imgWidth = img.width || gridSize * 4;
+          const imgHeight = img.height || gridSize * 4;
+
+          addElement({
+            id: Math.random().toString(36).substring(2, 9),
+            type: 'image' as any,
+            layer: activeLayer,
+            points: [{ x: 0, y: 0 }, { x: imgWidth, y: imgHeight }],
+            properties: { dataUrl }
+          });
+        };
+        img.src = dataUrl;
+      }
+    };
+    reader.readAsDataURL(file);
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const exportTileEl = elements.find(el => el.type === 'export-tile');
   const exportTile = exportTileEl ? exportTileEl.points[0] : null;
@@ -14,7 +49,10 @@ function App() {
   const [editingSlot, setEditingSlot] = useState<number | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [isHatchPanelOpen, setIsHatchPanelOpen] = useState(false);
+  const [isBrushPanelOpen, setIsBrushPanelOpen] = useState(false);
+  const [isShovelPanelOpen, setIsShovelPanelOpen] = useState(false);
   const [isStairPanelOpen, setIsStairPanelOpen] = useState(false);
+  const [isShadowPanelOpen, setIsShadowPanelOpen] = useState(false);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -40,11 +78,43 @@ function App() {
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
         redo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+        e.preventDefault();
+        if (selectedElementIds.length > 0) {
+          const selectedElements = elements.filter(el => selectedElementIds.includes(el.id));
+          const newElements = selectedElements.map(el => ({
+            ...el,
+            id: Math.random().toString(36).substring(2, 9),
+            points: el.points.map(p => ({ x: p.x + gridSize, y: p.y + gridSize }))
+          }));
+          setElements([...elements, ...newElements]);
+          setSelectedElementIds(newElements.map(el => el.id));
+        }
+      } else if (e.key.startsWith('Arrow') && selectedElementIds.length > 0) {
+        e.preventDefault();
+        const moveAmount = snapToGrid ? gridSize / 2 : 5;
+        let dx = 0;
+        let dy = 0;
+        if (e.key === 'ArrowUp') dy = -moveAmount;
+        if (e.key === 'ArrowDown') dy = moveAmount;
+        if (e.key === 'ArrowLeft') dx = -moveAmount;
+        if (e.key === 'ArrowRight') dx = moveAmount;
+
+        const newElements = elements.map(el => {
+          if (selectedElementIds.includes(el.id)) {
+            return {
+              ...el,
+              points: el.points.map(p => ({ x: p.x + dx, y: p.y + dy }))
+            };
+          }
+          return el;
+        });
+        setElements(newElements);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo]);
+  }, [undo, redo, elements, selectedElementIds, gridSize, setElements, setSelectedElementIds, snapToGrid]);
 
   const toolGroups = [
     {
@@ -76,6 +146,15 @@ function App() {
       tools: [
         { id: 'fill', icon: PaintBucket, label: 'Fill Area' },
         { id: 'unfill', icon: Eraser, label: 'Unfill Area' },
+      ]
+    },
+    {
+      id: 'painting',
+      icon: Paintbrush,
+      label: 'Painting & Masking',
+      tools: [
+        { id: 'brush', icon: Paintbrush, label: 'Brush' },
+        { id: 'shovel', icon: Shovel, label: 'Shovel (Mask)' },
       ]
     },
     {
@@ -327,10 +406,64 @@ function App() {
       {/* Right Sidebar - Properties */}
       <div className="w-64 bg-white border-l border-slate-200 p-4 flex flex-col z-10 shadow-sm overflow-y-auto">
         <h1 className="text-lg font-bold text-slate-900 tracking-tight mb-1">OSR Map Builder</h1>
+        <div className="mb-6">
+          <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-3 pb-2 border-b border-slate-100 flex items-center gap-2">
+            <Layers size={14} />
+            Layers
+          </h2>
+          <div className="space-y-1">
+            {[3, 2, 1, 0].map(layerIndex => (
+              <div 
+                key={layerIndex} 
+                className={`flex items-center justify-between p-2 rounded cursor-pointer ${activeLayer === layerIndex ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-50 border border-transparent'}`}
+                onClick={() => setActiveLayer(layerIndex)}
+              >
+                <div className="flex items-center gap-2">
+                  <div className={`w-3 h-3 rounded-full ${activeLayer === layerIndex ? 'bg-indigo-500' : 'bg-transparent border border-slate-300'}`} />
+                  <span className={`text-sm ${activeLayer === layerIndex ? 'text-indigo-700 font-medium' : 'text-slate-600'}`}>{LAYER_NAMES[layerIndex]}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); toggleLayerLock(layerIndex); }}
+                    className={`p-1 rounded hover:bg-slate-200 ${layerLock[layerIndex] ? 'text-red-500' : 'text-slate-400'}`}
+                    title={layerLock[layerIndex] ? "Unlock Layer" : "Lock Layer"}
+                  >
+                    {layerLock[layerIndex] ? <Lock size={14} /> : <Unlock size={14} />}
+                  </button>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); toggleLayerVisibility(layerIndex); }}
+                    className={`p-1 rounded hover:bg-slate-200 ${layerVisibility[layerIndex] ? 'text-slate-600' : 'text-slate-400'}`}
+                    title={layerVisibility[layerIndex] ? "Hide Layer" : "Show Layer"}
+                  >
+                    {layerVisibility[layerIndex] ? <Eye size={14} /> : <EyeOff size={14} />}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          <div className="mt-4 pt-4 border-t border-slate-200">
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleImageUpload} 
+              accept=".svg" 
+              className="hidden" 
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+            >
+              <Upload size={16} />
+              Upload Background (SVG)
+            </button>
+          </div>
+        </div>
+
         <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-6 pb-2 border-b border-slate-100">Properties</h2>
         
         <div className="space-y-4">
-          <div>
+           <div>
              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
                <input 
                  type="checkbox" 
@@ -339,9 +472,20 @@ function App() {
                  onChange={toggleGrid}
                />
                Show Grid
+              </label>
+           </div>
+           <div>
+             <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer mt-2">
+               <input 
+                 type="checkbox" 
+                 className="rounded text-indigo-600 focus:ring-indigo-500" 
+                 checked={showHatch}
+                 onChange={(e) => setShowHatch(e.target.checked)}
+               />
+               Show Hatch
              </label>
-          </div>
-          <div>
+           </div>
+           <div>
              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer mt-2">
                <input 
                  type="checkbox" 
@@ -351,7 +495,130 @@ function App() {
                />
                Snap to Grid
              </label>
+           </div>
+           
+          {/* Brush Properties */}
+          <div className="mt-4 border border-slate-200 rounded-md bg-white overflow-hidden">
+            <button 
+              onClick={() => setIsBrushPanelOpen(!isBrushPanelOpen)}
+              className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm transition-colors"
+            >
+              <span>Brush Properties</span>
+              <svg 
+                className={`w-4 h-4 transform transition-transform ${isBrushPanelOpen ? 'rotate-180' : ''}`} 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <div className={`transition-all duration-200 ease-in-out ${isBrushPanelOpen ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+              <div className="p-4 border-t border-slate-200">
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Color</label>
+                  <div className="flex gap-2">
+                    <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="w-8 h-8 rounded cursor-pointer" />
+                    <input type="text" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="flex-1 text-sm border border-slate-200 rounded px-2" />
+                  </div>
+                </div>
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Width: {brushWidth}px</label>
+                  <input 
+                    type="range" min="1" max="100" value={brushWidth} 
+                    onChange={(e) => setBrushWidth(Number(e.target.value))} 
+                    className="w-full"
+                  />
+                </div>
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Shape</label>
+                  <select 
+                    value={brushShape} 
+                    onChange={(e) => setBrushShape(e.target.value as 'round' | 'splat' | 'pentagon')}
+                    className="w-full text-sm border border-slate-200 rounded p-1"
+                  >
+                    <option value="round">Round</option>
+                    <option value="splat">Splat / Asterisk</option>
+                    <option value="pentagon">Pentagon</option>
+                  </select>
+                </div>
+                {(brushShape === 'splat' || brushShape === 'pentagon') && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Stamp Spacing / Intensity: {Math.round(brushSmoothness * 100)}%</label>
+                    <input 
+                      type="range" min="0" max="1" step="0.05" value={brushSmoothness} 
+                      onChange={(e) => setBrushSmoothness(Number(e.target.value))} 
+                      className="w-full"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
+
+          {/* Shovel Properties */}
+          <div className="mt-4 border border-slate-200 rounded-md bg-white overflow-hidden">
+            <button 
+              onClick={() => setIsShovelPanelOpen(!isShovelPanelOpen)}
+              className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm transition-colors"
+            >
+              <span>Shovel Properties</span>
+              <svg 
+                className={`w-4 h-4 transform transition-transform ${isShovelPanelOpen ? 'rotate-180' : ''}`} 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <div className={`transition-all duration-200 ease-in-out ${isShovelPanelOpen ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+              <div className="p-4 border-t border-slate-200">
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Target Layer to Reveal</label>
+                  <select 
+                    value={shovelTargetLayer} 
+                    onChange={(e) => setShovelTargetLayer(Number(e.target.value))}
+                    className="w-full text-sm border border-slate-200 rounded p-1"
+                  >
+                    {[0, 1, 2, 3].map(l => <option key={l} value={l}>{LAYER_NAMES[l]}</option>)}
+                  </select>
+                </div>
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Width: {brushWidth}px</label>
+                  <input 
+                    type="range" min="1" max="100" value={brushWidth} 
+                    onChange={(e) => setBrushWidth(Number(e.target.value))} 
+                    className="w-full"
+                  />
+                </div>
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Shape</label>
+                  <select 
+                    value={brushShape} 
+                    onChange={(e) => setBrushShape(e.target.value as 'round' | 'splat' | 'pentagon')}
+                    className="w-full text-sm border border-slate-200 rounded p-1"
+                  >
+                    <option value="round">Round</option>
+                    <option value="splat">Splat / Asterisk</option>
+                    <option value="pentagon">Pentagon</option>
+                  </select>
+                </div>
+                {(brushShape === 'splat' || brushShape === 'pentagon') && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Stamp Spacing / Intensity: {Math.round(brushSmoothness * 100)}%</label>
+                    <input 
+                      type="range" min="0" max="1" step="0.05" value={brushSmoothness} 
+                      onChange={(e) => setBrushSmoothness(Number(e.target.value))} 
+                      className="w-full"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+
           <div>
             <label className="block text-sm text-slate-700 mb-1 mt-4">Grid Size (px)</label>
             <input 
@@ -569,6 +836,55 @@ function App() {
                     min="4"
                     max="20"
                     step="1"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 border border-slate-200 rounded-md bg-white overflow-hidden">
+            <button 
+              onClick={() => setIsShadowPanelOpen(!isShadowPanelOpen)}
+              className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm transition-colors"
+            >
+              <span>Shadow Properties</span>
+              <svg 
+                className={`w-4 h-4 transform transition-transform ${isShadowPanelOpen ? 'rotate-180' : ''}`} 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            
+            <div className={`transition-all duration-200 ease-in-out ${isShadowPanelOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+              <div className="p-4 border-t border-slate-200">
+                <div>
+                  <label className="block text-sm text-slate-700 mb-1 mt-2">
+                    Shadow Thickness ({shadowThickness}px)
+                  </label>
+                  <input 
+                    type="range" 
+                    className="w-full" 
+                    value={shadowThickness}
+                    onChange={(e) => setShadowThickness(Number(e.target.value))}
+                    min="0"
+                    max="40"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-700 mb-1 mt-4">
+                    Shadow Darkness ({Math.round(shadowIntensity * 100)}%)
+                  </label>
+                  <input 
+                    type="range" 
+                    className="w-full" 
+                    value={shadowIntensity}
+                    onChange={(e) => setShadowIntensity(Number(e.target.value))}
+                    min="0"
+                    max="1"
+                    step="0.05"
                   />
                 </div>
               </div>
