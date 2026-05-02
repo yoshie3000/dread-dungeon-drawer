@@ -1,12 +1,40 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useMapStore } from './store';
-import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download, Undo2, Redo2, Crop, RotateCw, Columns, EyeOff, Circle, Box, RectangleHorizontal, Shapes, Grid } from 'lucide-react';
+import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download, Undo2, Redo2, Crop, RotateCw, Columns, Eye, EyeOff, Circle, Box, RectangleHorizontal, Shapes, Grid, Layers, Lock, Unlock, Upload } from 'lucide-react';
 import Canvas from './components/Canvas';
 import PatternEditor from './components/PatternEditor';
 import { generateDysonSegments, segmentsToPath } from './utils/dysonGenerator';
 
 function App() {
-  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, snapToGrid, setSnapToGrid, showGrid, toggleGrid, showHatch, setShowHatch, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement } = useMapStore();
+  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, snapToGrid, setSnapToGrid, showGrid, toggleGrid, showHatch, setShowHatch, activeLayer, setActiveLayer, layerVisibility, toggleLayerVisibility, layerLock, toggleLayerLock, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement, addElement } = useMapStore();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      if (dataUrl) {
+        // Create an image element centered or at 0,0 with a default size
+        // We'll give it a default 4x4 grid size. It can be resized later.
+        const defaultSize = gridSize * 4;
+        addElement({
+          id: Math.random().toString(36).substring(2, 9),
+          type: 'image' as any,
+          layer: activeLayer,
+          points: [{ x: 0, y: 0 }, { x: defaultSize, y: defaultSize }],
+          properties: { dataUrl }
+        });
+      }
+    };
+    reader.readAsDataURL(file);
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const exportTileEl = elements.find(el => el.type === 'export-tile');
   const exportTile = exportTileEl ? exportTileEl.points[0] : null;
@@ -327,6 +355,60 @@ function App() {
       {/* Right Sidebar - Properties */}
       <div className="w-64 bg-white border-l border-slate-200 p-4 flex flex-col z-10 shadow-sm overflow-y-auto">
         <h1 className="text-lg font-bold text-slate-900 tracking-tight mb-1">OSR Map Builder</h1>
+        <div className="mb-6">
+          <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-3 pb-2 border-b border-slate-100 flex items-center gap-2">
+            <Layers size={14} />
+            Layers
+          </h2>
+          <div className="space-y-1">
+            {[3, 2, 1, 0].map(layerIndex => (
+              <div 
+                key={layerIndex} 
+                className={`flex items-center justify-between p-2 rounded cursor-pointer ${activeLayer === layerIndex ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-50 border border-transparent'}`}
+                onClick={() => setActiveLayer(layerIndex)}
+              >
+                <div className="flex items-center gap-2">
+                  <div className={`w-3 h-3 rounded-full ${activeLayer === layerIndex ? 'bg-indigo-500' : 'bg-transparent border border-slate-300'}`} />
+                  <span className={`text-sm ${activeLayer === layerIndex ? 'text-indigo-700 font-medium' : 'text-slate-600'}`}>Layer {layerIndex}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); toggleLayerLock(layerIndex); }}
+                    className={`p-1 rounded hover:bg-slate-200 ${layerLock[layerIndex] ? 'text-red-500' : 'text-slate-400'}`}
+                    title={layerLock[layerIndex] ? "Unlock Layer" : "Lock Layer"}
+                  >
+                    {layerLock[layerIndex] ? <Lock size={14} /> : <Unlock size={14} />}
+                  </button>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); toggleLayerVisibility(layerIndex); }}
+                    className={`p-1 rounded hover:bg-slate-200 ${layerVisibility[layerIndex] ? 'text-slate-600' : 'text-slate-400'}`}
+                    title={layerVisibility[layerIndex] ? "Hide Layer" : "Show Layer"}
+                  >
+                    {layerVisibility[layerIndex] ? <Eye size={14} /> : <EyeOff size={14} />}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          <div className="mt-4 pt-4 border-t border-slate-200">
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleImageUpload} 
+              accept=".svg" 
+              className="hidden" 
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+            >
+              <Upload size={16} />
+              Upload Background (SVG)
+            </button>
+          </div>
+        </div>
+
         <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-6 pb-2 border-b border-slate-100">Properties</h2>
         
         <div className="space-y-4">

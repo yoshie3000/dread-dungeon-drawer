@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import type { Segment } from './utils/dysonGenerator'
 
-export type ElementType = 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective';
-export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'door-double' | 'door-secret' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete' | 'export-region' | 'export-tile' | 'rotate' | 'decoration-square' | 'decoration-circle' | 'decoration-rectangle';
+export type ElementType = 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective' | 'image';
+export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'door-double' | 'door-secret' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete' | 'export-region' | 'export-tile' | 'rotate' | 'decoration-square' | 'decoration-circle' | 'decoration-rectangle' | 'image';
 
 export interface Point {
   x: number;
@@ -13,12 +13,19 @@ export interface MapElement {
   id: string;
   type: Tool;
   points: Point[]; // For rooms: top-left, bottom-right. For walls: line segments.
+  layer?: number;
   properties?: any;
 }
 
 interface MapState {
   tool: Tool;
   setTool: (tool: Tool) => void;
+  activeLayer: number;
+  setActiveLayer: (layer: number) => void;
+  layerVisibility: boolean[];
+  toggleLayerVisibility: (layer: number) => void;
+  layerLock: boolean[];
+  toggleLayerLock: (layer: number) => void;
   hatchStyle: any;
   setHatchStyle: (style: any) => void;
   softBorderColor: string;
@@ -63,6 +70,20 @@ interface MapState {
 export const useMapStore = create<MapState>((set) => ({
   tool: 'room',
   setTool: (tool) => set({ tool }),
+  activeLayer: 0,
+  setActiveLayer: (activeLayer) => set({ activeLayer }),
+  layerVisibility: [true, true, true, true],
+  toggleLayerVisibility: (layer) => set((state) => {
+    const newVis = [...state.layerVisibility];
+    newVis[layer] = !newVis[layer];
+    return { layerVisibility: newVis };
+  }),
+  layerLock: [false, false, false, false],
+  toggleLayerLock: (layer) => set((state) => {
+    const newLock = [...state.layerLock];
+    newLock[layer] = !newLock[layer];
+    return { layerLock: newLock };
+  }),
   hatchStyle: 'dyson-hatch',
   setHatchStyle: (hatchStyle) => set({ hatchStyle }),
   softBorderColor: 'rgba(0,0,0,0.625)',
@@ -100,7 +121,7 @@ export const useMapStore = create<MapState>((set) => ({
   addElement: (element) => set((state) => ({ 
     pastElements: [...state.pastElements, state.elements],
     futureElements: [],
-    elements: [...state.elements, element] 
+    elements: [...state.elements, { layer: state.activeLayer, ...element }] 
   })),
   updateElement: (id, updated) => set((state) => ({
     pastElements: [...state.pastElements, state.elements],
