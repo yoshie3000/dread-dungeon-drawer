@@ -1126,7 +1126,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           <g>
             {layerRenderedElements.map((el: MapElement) => {
               if (el.type === 'door' || el.type === 'door-double' || el.type === 'door-secret') {
-                const isHorizontal = el.points[0].y === el.points[1].y;
+                const isHorizontal = Math.abs(el.points[1].x - el.points[0].x) >= Math.abs(el.points[1].y - el.points[0].y);
                 const minX = Math.min(el.points[0].x, el.points[1].x);
                 const maxX = Math.max(el.points[0].x, el.points[1].x);
                 const minY = Math.min(el.points[0].y, el.points[1].y);
@@ -1317,7 +1317,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           />
         )}
         
-        {isDrawing && (tool === 'wall' || tool === 'door') && (
+        {isDrawing && (tool === 'wall' || tool.startsWith('door')) && (
           <line 
             x1={startDrawPoint.x} y1={startDrawPoint.y}
             x2={currentDrawPoint.x} y2={currentDrawPoint.y}
