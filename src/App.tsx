@@ -5,6 +5,8 @@ import Canvas from './components/Canvas';
 import PatternEditor from './components/PatternEditor';
 import { generateDysonSegments, segmentsToPath } from './utils/dysonGenerator';
 
+const LAYER_NAMES = ['Hatch Layer', 'Floor Layer', 'Room Layer', 'Layer 3'];
+
 function App() {
   const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, shadowThickness, setShadowThickness, shadowIntensity, setShadowIntensity, snapToGrid, setSnapToGrid, showGrid, toggleGrid, showHatch, setShowHatch, activeLayer, setActiveLayer, layerVisibility, toggleLayerVisibility, layerLock, toggleLayerLock, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement, addElement, setElements, setSelectedElementIds, brushColor, setBrushColor, brushWidth, setBrushWidth, brushShape, setBrushShape, brushSmoothness, setBrushSmoothness, shovelTargetLayer, setShovelTargetLayer } = useMapStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -418,7 +420,7 @@ function App() {
               >
                 <div className="flex items-center gap-2">
                   <div className={`w-3 h-3 rounded-full ${activeLayer === layerIndex ? 'bg-indigo-500' : 'bg-transparent border border-slate-300'}`} />
-                  <span className={`text-sm ${activeLayer === layerIndex ? 'text-indigo-700 font-medium' : 'text-slate-600'}`}>Layer {layerIndex}</span>
+                  <span className={`text-sm ${activeLayer === layerIndex ? 'text-indigo-700 font-medium' : 'text-slate-600'}`}>{LAYER_NAMES[layerIndex]}</span>
                 </div>
                 <div className="flex items-center gap-1">
                   <button 
@@ -579,7 +581,7 @@ function App() {
                     onChange={(e) => setShovelTargetLayer(Number(e.target.value))}
                     className="w-full text-sm border border-slate-200 rounded p-1"
                   >
-                    {[0, 1, 2, 3].map(l => <option key={l} value={l}>Layer {l}</option>)}
+                    {[0, 1, 2, 3].map(l => <option key={l} value={l}>{LAYER_NAMES[l]}</option>)}
                   </select>
                 </div>
                 <div className="mb-3">

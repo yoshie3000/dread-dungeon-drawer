@@ -894,11 +894,23 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                     return null;
                   })}
                 </mask>
+
+                <mask id={`floor-mask-${layerIndex}`}>
+                  <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+                  {layerRenderedElements.map((el: MapElement) => {
+                    if (el.type === 'interior') {
+                      const w = el.points[1].x - el.points[0].x;
+                      const h = el.points[1].y - el.points[0].y;
+                      return <rect key={`floor-hole-${el.id}`} x={el.points[0].x} y={el.points[0].y} width={w} height={h} fill="black" />;
+                    }
+                    return null;
+                  })}
+                </mask>
               </defs>
 
           {/* Layer 1: Dyson Hatch (All sides) */}
           {showHatch && (
-            <g opacity={0.8} filter={hatchStyle === 'soft-border' ? 'url(#soft-blur)' : undefined}>
+            <g opacity={0.8} filter={hatchStyle === 'soft-border' ? 'url(#soft-blur)' : undefined} mask="url(#global-anti-room-mask)">
               {!hatchOrganic && layerRenderedElements.map((el: MapElement) => {
                 if (el.type === 'room' || el.type === 'interior') {
                   const w = el.points[1].x - el.points[0].x;
@@ -936,9 +948,9 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           )}
 
           {/* Layer 2: Room Floor (White rects) */}
-          <g>
+          <g mask={`url(#floor-mask-${layerIndex})`}>
             {layerRenderedElements.map((el: MapElement) => {
-              if (el.type === 'room' || el.type === 'interior') {
+              if (el.type === 'room') {
                 const w = el.points[1].x - el.points[0].x;
                 const h = el.points[1].y - el.points[0].y;
                 return (
@@ -948,7 +960,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                     y={el.points[0].y} 
                     width={w} 
                     height={h} 
-                    fill="white" 
+                    fill="transparent" 
                   />
                 );
               }
@@ -957,25 +969,27 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           </g>
 
           {/* Layer 3: Room Grid */}
-          <g>
-            {layerRenderedElements.map((el: MapElement) => {
-                if (el.type === 'room' || el.type === 'interior') {
-                  const w = el.points[1].x - el.points[0].x;
-                  const h = el.points[1].y - el.points[0].y;
-                  return (
-                    <rect 
-                      key={`grid-${el.id}`}
-                      x={el.points[0].x} 
-                      y={el.points[0].y} 
-                      width={w} 
-                      height={h} 
-                      fill="url(#room-grid)" 
-                    />
-                  );
-                }
-                return null;
-              })}
-            </g>
+          {showGrid && (
+            <g>
+              {layerRenderedElements.map((el: MapElement) => {
+                  if (el.type === 'room' || el.type === 'interior') {
+                    const w = el.points[1].x - el.points[0].x;
+                    const h = el.points[1].y - el.points[0].y;
+                    return (
+                      <rect 
+                        key={`grid-${el.id}`}
+                        x={el.points[0].x} 
+                        y={el.points[0].y} 
+                        width={w} 
+                        height={h} 
+                        fill="url(#room-grid)" 
+                      />
+                    );
+                  }
+                  return null;
+                })}
+              </g>
+          )}
 
           {/* Layer 3.5: Fill Tool (Negative Space) */}
           <g mask={`url(#fill-mask-${layerIndex})`}>
@@ -1432,13 +1446,35 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
             </g>
           );
         })}
+          <mask id="global-room-mask">
+            <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
+            {renderedElements.map((el: MapElement) => {
+              if (el.type === 'room' || el.type === 'interior') {
+                const w = el.points[1].x - el.points[0].x;
+                const h = el.points[1].y - el.points[0].y;
+                return <rect key={`global-mask-${el.id}`} x={el.points[0].x} y={el.points[0].y} width={w} height={h} fill="white" />;
+              }
+              return null;
+            })}
+          </mask>
+          <mask id="global-anti-room-mask">
+            <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+            {renderedElements.map((el: MapElement) => {
+              if (el.type === 'room' || el.type === 'interior') {
+                const w = el.points[1].x - el.points[0].x;
+                const h = el.points[1].y - el.points[0].y;
+                return <rect key={`global-anti-mask-${el.id}`} x={el.points[0].x} y={el.points[0].y} width={w} height={h} fill="black" />;
+              }
+              return null;
+            })}
+          </mask>
         </defs>
         
         {[0, 1, 2, 3].map(layerIndex => {
           const shovelsTargetingThisLayer = renderedElements.filter(el => el.type === 'shovel' && (el.properties?.shovelTargetLayer ?? 0) === layerIndex);
           
           return (
-            <g key={`layer-${layerIndex}`} className={`map-layer-${layerIndex}`}>
+            <g key={`layer-${layerIndex}`} className={`map-layer-${layerIndex}`} mask={layerIndex === 0 ? "url(#global-anti-room-mask)" : undefined}>
               {layerVisibility[layerIndex] && <use href={`#layer-${layerIndex}-content`} />}
               {!layerVisibility[layerIndex] && shovelsTargetingThisLayer.map((el: MapElement) => (
                 <use 
@@ -1447,6 +1483,12 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                   mask={`url(#shovel-mask-${el.id})`} 
                 />
               ))}
+              {!layerVisibility[layerIndex] && layerIndex === 1 && (
+                <use 
+                  href={`#layer-${layerIndex}-content`} 
+                  mask="url(#global-room-mask)" 
+                />
+              )}
             </g>
           );
         })}
