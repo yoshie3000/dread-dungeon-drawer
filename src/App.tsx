@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useMapStore } from './store';
-import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download, Undo2, Redo2, Crop, RotateCw, Columns, Eye, EyeOff, Circle, Box, RectangleHorizontal, Shapes, Grid, Layers, Lock, Unlock, Upload } from 'lucide-react';
+import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download, Undo2, Redo2, Crop, RotateCw, Columns, Eye, EyeOff, Circle, Box, RectangleHorizontal, Shapes, Grid, Layers, Lock, Unlock, Upload, Paintbrush, Shovel } from 'lucide-react';
 import Canvas from './components/Canvas';
 import PatternEditor from './components/PatternEditor';
 import { generateDysonSegments, segmentsToPath } from './utils/dysonGenerator';
 
 function App() {
-  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, snapToGrid, setSnapToGrid, showGrid, toggleGrid, showHatch, setShowHatch, activeLayer, setActiveLayer, layerVisibility, toggleLayerVisibility, layerLock, toggleLayerLock, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement, addElement, setElements, setSelectedElementIds } = useMapStore();
+  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, snapToGrid, setSnapToGrid, showGrid, toggleGrid, showHatch, setShowHatch, activeLayer, setActiveLayer, layerVisibility, toggleLayerVisibility, layerLock, toggleLayerLock, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement, addElement, setElements, setSelectedElementIds, brushColor, setBrushColor, brushWidth, setBrushWidth, brushShape, setBrushShape, brushSmoothness, setBrushSmoothness, shovelTargetLayer, setShovelTargetLayer } = useMapStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -141,6 +141,15 @@ function App() {
       tools: [
         { id: 'fill', icon: PaintBucket, label: 'Fill Area' },
         { id: 'unfill', icon: Eraser, label: 'Unfill Area' },
+      ]
+    },
+    {
+      id: 'painting',
+      icon: Paintbrush,
+      label: 'Painting & Masking',
+      tools: [
+        { id: 'brush', icon: Paintbrush, label: 'Brush' },
+        { id: 'shovel', icon: Shovel, label: 'Shovel (Mask)' },
       ]
     },
     {
@@ -458,8 +467,70 @@ function App() {
                  onChange={toggleGrid}
                />
                Show Grid
-             </label>
+              </label>
            </div>
+           
+           {(tool === 'brush' || tool === 'shovel') && (
+             <div className="mt-4 p-3 bg-slate-50 rounded border border-slate-200">
+               <h3 className="text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wider">{tool === 'brush' ? 'Brush Settings' : 'Shovel Settings'}</h3>
+               
+               {tool === 'brush' && (
+                 <div className="mb-3">
+                   <label className="block text-xs font-medium text-slate-600 mb-1">Color</label>
+                   <div className="flex gap-2">
+                     <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="w-8 h-8 rounded cursor-pointer" />
+                     <input type="text" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} className="flex-1 text-sm border border-slate-200 rounded px-2" />
+                   </div>
+                 </div>
+               )}
+
+               {tool === 'shovel' && (
+                 <div className="mb-3">
+                   <label className="block text-xs font-medium text-slate-600 mb-1">Target Layer to Reveal</label>
+                   <select 
+                     value={shovelTargetLayer} 
+                     onChange={(e) => setShovelTargetLayer(Number(e.target.value))}
+                     className="w-full text-sm border border-slate-200 rounded p-1"
+                   >
+                     {[0, 1, 2, 3].map(l => <option key={l} value={l}>Layer {l}</option>)}
+                   </select>
+                 </div>
+               )}
+
+               <div className="mb-3">
+                 <label className="block text-xs font-medium text-slate-600 mb-1">Width: {brushWidth}px</label>
+                 <input 
+                   type="range" min="1" max="100" value={brushWidth} 
+                   onChange={(e) => setBrushWidth(Number(e.target.value))} 
+                   className="w-full"
+                 />
+               </div>
+
+               <div className="mb-3">
+                 <label className="block text-xs font-medium text-slate-600 mb-1">Shape</label>
+                 <select 
+                   value={brushShape} 
+                   onChange={(e) => setBrushShape(e.target.value as 'round' | 'splat')}
+                   className="w-full text-sm border border-slate-200 rounded p-1"
+                 >
+                   <option value="round">Round</option>
+                   <option value="splat">Splat / Organic</option>
+                 </select>
+               </div>
+
+               {brushShape === 'splat' && (
+                 <div>
+                   <label className="block text-xs font-medium text-slate-600 mb-1">Splat Intensity: {Math.round(brushSmoothness * 100)}%</label>
+                   <input 
+                     type="range" min="0" max="1" step="0.05" value={brushSmoothness} 
+                     onChange={(e) => setBrushSmoothness(Number(e.target.value))} 
+                     className="w-full"
+                   />
+                 </div>
+               )}
+             </div>
+           )}
+
            <div>
              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer mt-2">
                <input 

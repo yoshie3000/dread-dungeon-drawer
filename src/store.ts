@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import type { Segment } from './utils/dysonGenerator'
 
-export type ElementType = 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective' | 'image';
-export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'door-double' | 'door-secret' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete' | 'export-region' | 'export-tile' | 'rotate' | 'decoration-square' | 'decoration-circle' | 'decoration-rectangle' | 'image';
+export type ElementType = 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective' | 'image' | 'brush' | 'shovel';
+export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'door-double' | 'door-secret' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete' | 'export-region' | 'export-tile' | 'rotate' | 'decoration-square' | 'decoration-circle' | 'decoration-rectangle' | 'image' | 'brush' | 'shovel';
 
 export interface Point {
   x: number;
@@ -38,6 +38,16 @@ interface MapState {
   setHatchOrganic: (organic: boolean) => void;
   hatchSmoothness: number;
   setHatchSmoothness: (smoothness: number) => void;
+  brushColor: string;
+  setBrushColor: (color: string) => void;
+  brushWidth: number;
+  setBrushWidth: (width: number) => void;
+  brushShape: 'round' | 'splat';
+  setBrushShape: (shape: 'round' | 'splat') => void;
+  brushSmoothness: number;
+  setBrushSmoothness: (smoothness: number) => void;
+  shovelTargetLayer: number;
+  setShovelTargetLayer: (layer: number) => void;
   stairSteps: number;
   setStairSteps: (steps: number) => void;
   snapToGrid: boolean;
@@ -157,6 +167,16 @@ export const useMapStore = create<MapState>((set) => ({
   setViewState: (viewState) => set((state) => ({ viewState: { ...state.viewState, ...viewState } })),
   gridSize: 50,
   setGridSize: (gridSize) => set({ gridSize }),
+  brushColor: '#000000',
+  setBrushColor: (brushColor) => set({ brushColor }),
+  brushWidth: 10,
+  setBrushWidth: (brushWidth) => set({ brushWidth }),
+  brushShape: 'round',
+  setBrushShape: (brushShape) => set({ brushShape }),
+  brushSmoothness: 0.5,
+  setBrushSmoothness: (brushSmoothness) => set({ brushSmoothness }),
+  shovelTargetLayer: 0,
+  setShovelTargetLayer: (shovelTargetLayer) => set({ shovelTargetLayer }),
   showHatch: true,
   setShowHatch: (showHatch) => set({ showHatch }),
   showGrid: true,

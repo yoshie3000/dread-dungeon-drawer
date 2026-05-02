@@ -83,7 +83,12 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     selectedElementIds,
     setSelectedElementIds,
     snapToGrid,
-    setTool
+    setTool,
+    brushColor,
+    brushWidth,
+    brushShape,
+    brushSmoothness,
+    shovelTargetLayer
   } = useMapStore();
   const svgRef = useRef<SVGSVGElement>(null);
   
@@ -91,6 +96,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
   const [startPan, setStartPan] = useState<Point>({ x: 0, y: 0 });
 
   const [isDrawing, setIsDrawing] = useState(false);
+  const [currentDrawPath, setCurrentDrawPath] = useState<Point[]>([]);
   const [startDrawPoint, setStartDrawPoint] = useState<Point>({ x: 0, y: 0 });
   const [currentDrawPoint, setCurrentDrawPoint] = useState<Point>({ x: 0, y: 0 });
   
@@ -99,6 +105,33 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
   const [isDrawingSelectionFence, setIsDrawingSelectionFence] = useState(false);
   const [dragStartPoint, setDragStartPoint] = useState<Point>({ x: 0, y: 0 });
   const [dragOffset, setDragOffset] = useState({ dx: 0, dy: 0 });
+
+  const getSmoothPath = (points: Point[]) => {
+    if (points.length === 0) return '';
+    if (points.length === 1) return `M ${points[0].x} ${points[0].y} L ${points[0].x} ${points[0].y}`;
+    let d = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 1; i < points.length - 1; i++) {
+      const xc = (points[i].x + points[i + 1].x) / 2;
+      const yc = (points[i].y + points[i + 1].y) / 2;
+      d += ` Q ${points[i].x} ${points[i].y}, ${xc} ${yc}`;
+    }
+    d += ` L ${points[points.length - 1].x} ${points[points.length - 1].y}`;
+    return d;
+  };
+
+  const filterAsteriskPoints = (points: Point[], size: number) => {
+    if (points.length === 0) return [];
+    const result = [points[0]];
+    let lastPoint = points[0];
+    for (let i = 1; i < points.length; i++) {
+      const dist = Math.hypot(points[i].x - lastPoint.x, points[i].y - lastPoint.y);
+      if (dist >= size / 2) {
+        result.push(points[i]);
+        lastPoint = points[i];
+      }
+    }
+    return result;
+  };
 
   const [isResizing, setIsResizing] = useState(false);
   const [resizeElementId, setResizeElementId] = useState<string | null>(null);
@@ -168,10 +201,14 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           setCurrentDrawPoint(rawPoint);
         }
       } else {
-        const point = getSnappedPoint(getMapCoordinates(e));
+        const rawPoint = getMapCoordinates(e);
+        const point = (tool === 'brush' || tool === 'shovel') ? rawPoint : getSnappedPoint(rawPoint);
         setIsDrawing(true);
         setStartDrawPoint(point);
         setCurrentDrawPoint(point);
+        if (tool === 'brush' || tool === 'shovel') {
+          setCurrentDrawPath([rawPoint]);
+        }
       }
     }
   };
@@ -232,8 +269,12 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     }
 
     if (isDrawing) {
-      const point = getSnappedPoint(getMapCoordinates(e));
+      const rawPoint = getMapCoordinates(e);
+      const point = (tool === 'brush' || tool === 'shovel') ? rawPoint : getSnappedPoint(rawPoint);
       setCurrentDrawPoint(point);
+      if (tool === 'brush' || tool === 'shovel') {
+        setCurrentDrawPath(prev => [...prev, rawPoint]);
+      }
     }
   };
 
@@ -428,6 +469,18 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
               properties: { hatchStyle, hatchDensity, hatchWidth, hatchSmoothness, hatchOrganic }
             });
           }
+        } else if (tool === 'brush' || tool === 'shovel') {
+          if (currentDrawPath.length > 1) {
+            addElement({
+              id: Math.random().toString(36).substring(2, 9),
+              type: tool as any,
+              points: currentDrawPath,
+              properties: { 
+                brushColor, brushWidth, brushShape, brushSmoothness, shovelTargetLayer
+              }
+            });
+          }
+          setCurrentDrawPath([]);
         } else if (tool === 'wall' || tool.startsWith('door')) {
           addElement({
             id: Math.random().toString(36).substring(2, 9),
@@ -768,12 +821,45 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
 
       <g id="map-container" transform={`translate(${viewState.x}, ${viewState.y}) scale(${viewState.zoom})`}>
         
+        <defs>
+        <filter id="splat-filter">
+          <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="2" result="noise" />
+          <feDisplacementMap in="SourceGraphic" in2="noise" scale="15" xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+        {renderedElements.filter((el: MapElement) => el.type === 'shovel').map((el: MapElement) => (
+          <mask id={`shovel-mask-${el.id}`} key={`shovel-mask-${el.id}`}>
+            <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
+            {el.properties?.brushShape === 'splat' ? (
+              <g>
+                {filterAsteriskPoints(el.points, el.properties?.brushWidth || 10).map((p, i) => {
+                  const size = el.properties?.brushWidth || 10;
+                  const r = size / 2;
+                  return (
+                    <g key={`splat-${el.id}-${i}`} transform={`translate(${p.x}, ${p.y})`}>
+                       <line x1={-r} y1={0} x2={r} y2={0} stroke="white" strokeWidth={size/5} strokeLinecap="round" />
+                       <line x1={-r*0.5} y1={-r*0.866} x2={r*0.5} y2={r*0.866} stroke="white" strokeWidth={size/5} strokeLinecap="round" />
+                       <line x1={-r*0.5} y1={r*0.866} x2={r*0.5} y2={-r*0.866} stroke="white" strokeWidth={size/5} strokeLinecap="round" />
+                    </g>
+                  );
+                })}
+              </g>
+            ) : (
+              <path 
+                d={getSmoothPath(el.points)} 
+                stroke="white" 
+                fill="none" 
+                strokeWidth={el.properties?.brushWidth || 10} 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+              />
+            )}
+          </mask>
+        ))}
         {[0, 1, 2, 3].map(layerIndex => {
-          if (!layerVisibility[layerIndex]) return null;
           const layerRenderedElements = renderedElements.filter(el => (el.layer ?? 0) === layerIndex);
 
           return (
-            <g key={`layer-${layerIndex}`} className={`map-layer-${layerIndex}`}>
+            <g id={`layer-${layerIndex}-content`} key={`layer-def-${layerIndex}`}>
               <defs>
                 <mask id={`room-mask-${layerIndex}`}>
                   <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
@@ -1286,6 +1372,63 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
             })}
           </g>
 
+              {/* Layer 8: Brushes */}
+              <g>
+                {layerRenderedElements.map((el: MapElement) => {
+                  if (el.type === 'brush') {
+                    if (el.properties?.brushShape === 'splat') {
+                      return (
+                        <g key={`brush-${el.id}`}>
+                          {filterAsteriskPoints(el.points, el.properties?.brushWidth || 10).map((p, i) => {
+                            const size = el.properties?.brushWidth || 10;
+                            const r = size / 2;
+                            const color = el.properties?.brushColor || 'black';
+                            return (
+                              <g key={`splat-${el.id}-${i}`} transform={`translate(${p.x}, ${p.y})`}>
+                                 <line x1={-r} y1={0} x2={r} y2={0} stroke={color} strokeWidth={size/5} strokeLinecap="round" />
+                                 <line x1={-r*0.5} y1={-r*0.866} x2={r*0.5} y2={r*0.866} stroke={color} strokeWidth={size/5} strokeLinecap="round" />
+                                 <line x1={-r*0.5} y1={r*0.866} x2={r*0.5} y2={-r*0.866} stroke={color} strokeWidth={size/5} strokeLinecap="round" />
+                              </g>
+                            );
+                          })}
+                        </g>
+                      );
+                    }
+                    
+                    return (
+                      <path 
+                        key={`brush-${el.id}`}
+                        d={getSmoothPath(el.points)}
+                        stroke={el.properties?.brushColor || 'black'}
+                        strokeWidth={el.properties?.brushWidth || 10}
+                        fill="none"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    );
+                  }
+                  return null;
+                })}
+              </g>
+
+            </g>
+          );
+        })}
+        </defs>
+        
+        {[0, 1, 2, 3].map(layerIndex => {
+          const shovelsTargetingThisLayer = renderedElements.filter(el => el.type === 'shovel' && (el.properties?.shovelTargetLayer ?? 0) === layerIndex);
+          
+          return (
+            <g key={`layer-${layerIndex}`} className={`map-layer-${layerIndex}`}>
+              {layerVisibility[layerIndex] && <use href={`#layer-${layerIndex}-content`} />}
+              {!layerVisibility[layerIndex] && shovelsTargetingThisLayer.map((el: MapElement) => (
+                <use 
+                  key={`shovel-use-${el.id}`} 
+                  href={`#layer-${layerIndex}-content`} 
+                  mask={`url(#shovel-mask-${el.id})`} 
+                />
+              ))}
             </g>
           );
         })}
@@ -1303,7 +1446,35 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
             strokeDasharray="4 4"
           />
         )}
-        {isDrawing && tool !== 'select' && tool !== 'rotate' && tool !== 'export-tile' && (
+        {isDrawing && (tool === 'brush' || tool === 'shovel') && currentDrawPath.length > 0 && (
+          brushShape === 'splat' ? (
+            <g opacity={tool === 'shovel' ? 0.5 : 1} className="export-ignore">
+              {filterAsteriskPoints(currentDrawPath, brushWidth).map((p, i) => {
+                const r = brushWidth / 2;
+                const color = tool === 'brush' ? brushColor : 'black';
+                return (
+                  <g key={`splat-live-${i}`} transform={`translate(${p.x}, ${p.y})`}>
+                     <line x1={-r} y1={0} x2={r} y2={0} stroke={color} strokeWidth={brushWidth/5} strokeLinecap="round" />
+                     <line x1={-r*0.5} y1={-r*0.866} x2={r*0.5} y2={r*0.866} stroke={color} strokeWidth={brushWidth/5} strokeLinecap="round" />
+                     <line x1={-r*0.5} y1={r*0.866} x2={r*0.5} y2={-r*0.866} stroke={color} strokeWidth={brushWidth/5} strokeLinecap="round" />
+                  </g>
+                );
+              })}
+            </g>
+          ) : (
+            <path
+              d={getSmoothPath(currentDrawPath)}
+              stroke={tool === 'brush' ? brushColor : 'black'}
+              strokeWidth={brushWidth}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="export-ignore"
+              opacity={tool === 'shovel' ? 0.5 : 1}
+            />
+          )
+        )}
+        {isDrawing && tool !== 'select' && tool !== 'rotate' && tool !== 'export-tile' && tool !== 'brush' && tool !== 'shovel' && (
           <rect 
             className="export-ignore"
             x={tool.startsWith('decoration-') && snapToGrid ? startDrawPoint.x - Math.abs(currentDrawPoint.x - startDrawPoint.x) : Math.min(startDrawPoint.x, currentDrawPoint.x)} 
