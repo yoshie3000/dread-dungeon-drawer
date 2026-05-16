@@ -22,6 +22,52 @@ function getRoughPath(drawable: any): string {
   return path.trim();
 }
 
+function getCurvedHallCenterline(minX: number, minY: number, maxX: number, maxY: number, elbowPosition: string, gridSize: number): string {
+  const R = Math.min(maxX - minX, maxY - minY, gridSize);
+  switch (elbowPosition) {
+    case 'top-right':
+      return `M ${minX} ${minY} L ${maxX - R} ${minY} A ${R} ${R} 0 0 1 ${maxX} ${minY + R} L ${maxX} ${maxY}`;
+    case 'top-left':
+      return `M ${maxX} ${minY} L ${minX + R} ${minY} A ${R} ${R} 0 0 0 ${minX} ${minY + R} L ${minX} ${maxY}`;
+    case 'bottom-left':
+      return `M ${maxX} ${maxY} L ${minX + R} ${maxY} A ${R} ${R} 0 0 1 ${minX} ${maxY - R} L ${minX} ${minY}`;
+    case 'bottom-right':
+    default:
+      return `M ${minX} ${maxY} L ${maxX - R} ${maxY} A ${R} ${R} 0 0 0 ${maxX} ${maxY - R} L ${maxX} ${minY}`;
+  }
+}
+
+function getCurvedHallWallPaths(minX: number, minY: number, maxX: number, maxY: number, elbowPosition: string, gridSize: number) {
+  const R = Math.min(maxX - minX, maxY - minY, gridSize);
+  const w = gridSize / 2;
+  const outerR = R + w;
+  const innerR = Math.max(0.01, R - w);
+  
+  let outerD = '';
+  let innerD = '';
+  
+  switch (elbowPosition) {
+    case 'top-right':
+      outerD = `M ${minX} ${minY - w} L ${maxX - R} ${minY - w} A ${outerR} ${outerR} 0 0 1 ${maxX + w} ${minY + R} L ${maxX + w} ${maxY}`;
+      innerD = `M ${minX} ${minY + w} L ${maxX - R} ${minY + w} A ${innerR} ${innerR} 0 0 1 ${maxX - w} ${minY + R} L ${maxX - w} ${maxY}`;
+      break;
+    case 'top-left':
+      outerD = `M ${maxX} ${minY - w} L ${minX + R} ${minY - w} A ${outerR} ${outerR} 0 0 0 ${minX - w} ${minY + R} L ${minX - w} ${maxY}`;
+      innerD = `M ${maxX} ${minY + w} L ${minX + R} ${minY + w} A ${innerR} ${innerR} 0 0 0 ${minX + w} ${minY + R} L ${minX + w} ${maxY}`;
+      break;
+    case 'bottom-left':
+      outerD = `M ${maxX} ${maxY + w} L ${minX + R} ${maxY + w} A ${outerR} ${outerR} 0 0 1 ${minX - w} ${maxY - R} L ${minX - w} ${minY}`;
+      innerD = `M ${maxX} ${maxY - w} L ${minX + R} ${maxY - w} A ${innerR} ${innerR} 0 0 1 ${minX + w} ${maxY - R} L ${minX + w} ${minY}`;
+      break;
+    case 'bottom-right':
+    default:
+      outerD = `M ${minX} ${maxY + w} L ${maxX - R} ${maxY + w} A ${outerR} ${outerR} 0 0 0 ${maxX + w} ${maxY - R} L ${maxX + w} ${minY}`;
+      innerD = `M ${minX} ${maxY - w} L ${maxX - R} ${maxY - w} A ${innerR} ${innerR} 0 0 0 ${maxX - w} ${maxY - R} L ${maxX - w} ${minY}`;
+      break;
+  }
+  return { outerD, innerD };
+}
+
 import type { MapElement } from '../store';
 
 const getClickedElement = (rawPoint: Point, elements: MapElement[]) => {
@@ -138,6 +184,8 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
   const [isResizing, setIsResizing] = useState(false);
   const [resizeElementId, setResizeElementId] = useState<string | null>(null);
   const [resizeScale, setResizeScale] = useState(1);
+  const [dragPointIndex, setDragPointIndex] = useState<number | null>(null);
+  const [dragPointElementId, setDragPointElementId] = useState<string | null>(null);
 
   const getMapCoordinates = (e: MouseEvent<SVGSVGElement> | React.MouseEvent): Point => {
     if (!svgRef.current) return { x: 0, y: 0 };
@@ -172,21 +220,25 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
         const clickedEl = getClickedElement(rawPoint, elements.filter(el => !layerLock[el.layer ?? 0]));
         
         if (clickedEl) {
-          if (selectedElementIds.length === 1 && selectedElementIds[0] === clickedEl.id && (clickedEl.type.startsWith('decoration-') || clickedEl.type === 'image')) {
-            const maxX = Math.max(...clickedEl.points.map(p => p.x));
-            const maxY = Math.max(...clickedEl.points.map(p => p.y));
-            
+          if (selectedElementIds.length === 1 && selectedElementIds[0] === clickedEl.id) {
             const handleSize = 10;
-            // Snapped check is too strict, check against raw point
-            if (rawPoint.x >= maxX - handleSize && rawPoint.x <= maxX + handleSize && rawPoint.y >= maxY - handleSize && rawPoint.y <= maxY + handleSize) {
-              setIsResizing(true);
-              setResizeElementId(clickedEl.id);
+            
+            // Check for element resize
+            if (clickedEl.type.startsWith('decoration-') || clickedEl.type === 'image' || clickedEl.type === 'hall-curved') {
+              const maxX = Math.max(...clickedEl.points.map(p => p.x));
+              const maxY = Math.max(...clickedEl.points.map(p => p.y));
               
-              const minX = Math.min(...clickedEl.points.map(p => p.x));
-              const minY = Math.min(...clickedEl.points.map(p => p.y));
-              setDragStartPoint({x: minX, y: minY}); // Anchor point
-              setResizeScale(1);
-              return;
+              // Snapped check is too strict, check against raw point
+              if (rawPoint.x >= maxX - handleSize && rawPoint.x <= maxX + handleSize && rawPoint.y >= maxY - handleSize && rawPoint.y <= maxY + handleSize) {
+                setIsResizing(true);
+                setResizeElementId(clickedEl.id);
+                
+                const minX = Math.min(...clickedEl.points.map(p => p.x));
+                const minY = Math.min(...clickedEl.points.map(p => p.y));
+                setDragStartPoint({x: minX, y: minY}); // Anchor point
+                setResizeScale(1);
+                return;
+              }
             }
           }
 
@@ -224,6 +276,19 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
         y: viewState.y + dy 
       });
       setStartPan({ x: e.clientX, y: e.clientY });
+      return;
+    }
+
+    if (dragPointIndex !== null && dragPointElementId) {
+      const point = getSnappedPoint(getMapCoordinates(e));
+      setElements(elements.map(el => {
+        if (el.id === dragPointElementId) {
+          const newPoints = [...el.points];
+          newPoints[dragPointIndex] = point;
+          return { ...el, points: newPoints };
+        }
+        return el;
+      }));
       return;
     }
 
@@ -282,6 +347,12 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
 
   const handleMouseUp = (e?: React.MouseEvent<SVGSVGElement>) => {
     setIsPanning(false);
+
+    if (dragPointIndex !== null) {
+      setDragPointIndex(null);
+      setDragPointElementId(null);
+      return;
+    }
 
     if (isResizing && resizeElementId) {
       setIsResizing(false);
@@ -386,7 +457,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
       setIsDrawing(false);
       
       if (startDrawPoint.x !== currentDrawPoint.x || startDrawPoint.y !== currentDrawPoint.y) {
-        if (tool === 'room' || tool === 'interior' || tool === 'fill' || tool === 'unfill' || tool.startsWith('decoration-')) {
+        if (tool === 'room' || tool === 'room-circle' || tool === 'interior' || tool === 'fill' || tool === 'unfill' || tool.startsWith('decoration-')) {
           const minX = Math.min(startDrawPoint.x, currentDrawPoint.x);
           const minY = Math.min(startDrawPoint.y, currentDrawPoint.y);
           const maxX = Math.max(startDrawPoint.x, currentDrawPoint.x);
@@ -401,6 +472,29 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                  { x: maxX, y: maxY }
                ]
              });
+          }
+        } else if (tool === 'hall-curved') {
+          const minX = Math.min(startDrawPoint.x, currentDrawPoint.x);
+          const minY = Math.min(startDrawPoint.y, currentDrawPoint.y);
+          const maxX = Math.max(startDrawPoint.x, currentDrawPoint.x);
+          const maxY = Math.max(startDrawPoint.y, currentDrawPoint.y);
+          
+          if (maxX - minX > 0 && maxY - minY > 0) {
+            let elbowPosition = 'top-right';
+            if (currentDrawPoint.x > startDrawPoint.x && currentDrawPoint.y > startDrawPoint.y) elbowPosition = 'top-right';
+            else if (currentDrawPoint.x < startDrawPoint.x && currentDrawPoint.y > startDrawPoint.y) elbowPosition = 'top-left';
+            else if (currentDrawPoint.x < startDrawPoint.x && currentDrawPoint.y < startDrawPoint.y) elbowPosition = 'bottom-left';
+            else if (currentDrawPoint.x > startDrawPoint.x && currentDrawPoint.y < startDrawPoint.y) elbowPosition = 'bottom-right';
+
+            addElement({
+              id: Math.random().toString(36).substring(2, 9),
+              type: tool as any,
+              points: [
+                { x: minX, y: minY },
+                { x: maxX, y: maxY }
+              ],
+              properties: { elbowPosition }
+            });
           }
         } else if (tool === 'stair' || tool === 'stair-depth' || tool === 'stair-perspective') {
           const minX = Math.min(startDrawPoint.x, currentDrawPoint.x);
@@ -447,7 +541,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           const newEl: MapElement = {
             id: 'export-tile-marker',
             type: 'export-tile' as any,
-            points: [exportPoint, { x: exportPoint.x + 144, y: exportPoint.y + 144 }]
+            points: [exportPoint, { x: exportPoint.x + gridSize * 3, y: exportPoint.y + gridSize * 3 }]
           };
           setElements([...elements.filter(e => e.type !== 'export-tile'), newEl]);
           setTool('select');
@@ -503,7 +597,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
         const clickedEl = getClickedElement(rawPoint, elements.filter(el => !layerLock[el.layer ?? 0]));
         
         if (clickedEl) {
-          const areaTools = ['room', 'interior', 'fill', 'unfill'];
+          const areaTools = ['room', 'room-circle', 'interior', 'fill', 'unfill', 'hall-curved'];
           
           // Use original geometry to prevent rounding drift ("walking") across multiple rotations
           const origPoints = clickedEl.properties?.originalPoints || clickedEl.points;
@@ -543,12 +637,23 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
             };
           });
 
-          const newProperties = {
+          let newProperties = {
             ...clickedEl.properties,
             originalPoints: origPoints,
             pivot: { x: cx, y: cy },
             rotation
           };
+
+          if (clickedEl.type === 'hall-curved') {
+            const cycle = {
+              'top-right': 'bottom-right',
+              'bottom-right': 'bottom-left',
+              'bottom-left': 'top-left',
+              'top-left': 'top-right'
+            };
+            const currentElbow = newProperties.elbowPosition || 'top-right';
+            newProperties.elbowPosition = cycle[currentElbow as keyof typeof cycle];
+          }
 
           if (areaTools.includes(clickedEl.type)) {
             // Normalize so points[0] is always top-left and points[1] is bottom-right
@@ -879,6 +984,22 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                       const h = el.points[1].y - el.points[0].y;
                       return <rect key={`mask-${el.id}`} x={el.points[0].x} y={el.points[0].y} width={w} height={h} fill="white" />;
                     }
+                    if (el.type === 'room-circle') {
+                      const w = el.points[1].x - el.points[0].x;
+                      const h = el.points[1].y - el.points[0].y;
+                      const cx = el.points[0].x + w / 2;
+                      const cy = el.points[0].y + h / 2;
+                      return <ellipse key={`mask-${el.id}`} cx={cx} cy={cy} rx={Math.abs(w/2)} ry={Math.abs(h/2)} fill="white" />;
+                    }
+                    if (el.type === 'hall-curved') {
+                      const minX = Math.min(el.points[0].x, el.points[1].x);
+                      const minY = Math.min(el.points[0].y, el.points[1].y);
+                      const maxX = Math.max(el.points[0].x, el.points[1].x);
+                      const maxY = Math.max(el.points[0].y, el.points[1].y);
+                      const elbow = el.properties?.elbowPosition || 'top-right';
+                      const pathStr = getCurvedHallCenterline(minX, minY, maxX, maxY, elbow, gridSize);
+                      return <path key={`mask-${el.id}`} d={pathStr} stroke="white" strokeWidth={gridSize} fill="none" strokeLinecap="square" />;
+                    }
                     return null;
                   })}
                 </mask>
@@ -929,6 +1050,39 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                     />
                   );
                 }
+                if (el.type === 'room-circle') {
+                  const w = el.points[1].x - el.points[0].x;
+                  const h = el.points[1].y - el.points[0].y;
+                  const cx = el.points[0].x + w / 2;
+                  const cy = el.points[0].y + h / 2;
+                  return (
+                    <ellipse 
+                      key={`hatch-${el.id}`}
+                      cx={cx} cy={cy} rx={Math.abs(w/2)} ry={Math.abs(h/2)}
+                      fill="none"
+                      stroke={hatchStyle === 'soft-border' ? softBorderColor : `url(#${hatchStyle})`}
+                      strokeWidth={gridSize * hatchWidth * 2} 
+                    />
+                  );
+                }
+                if (el.type === 'hall-curved') {
+                  const minX = Math.min(el.points[0].x, el.points[1].x);
+                  const minY = Math.min(el.points[0].y, el.points[1].y);
+                  const maxX = Math.max(el.points[0].x, el.points[1].x);
+                  const maxY = Math.max(el.points[0].y, el.points[1].y);
+                  const elbow = el.properties?.elbowPosition || 'top-right';
+                  const pathStr = getCurvedHallCenterline(minX, minY, maxX, maxY, elbow, gridSize);
+                  return (
+                    <path 
+                      key={`hatch-${el.id}`}
+                      d={pathStr}
+                      fill="none"
+                      stroke={hatchStyle === 'soft-border' ? softBorderColor : `url(#${hatchStyle})`}
+                      strokeWidth={gridSize * hatchWidth * 2 + gridSize}
+                      strokeLinecap="square"
+                    />
+                  );
+                }
                 if (el.type === 'wall') {
                   return (
                     <line
@@ -953,16 +1107,23 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
               if (el.type === 'room') {
                 const w = el.points[1].x - el.points[0].x;
                 const h = el.points[1].y - el.points[0].y;
-                return (
-                  <rect 
-                    key={`floor-${el.id}`}
-                    x={el.points[0].x} 
-                    y={el.points[0].y} 
-                    width={w} 
-                    height={h} 
-                    fill="transparent" 
-                  />
-                );
+                return <rect key={`floor-${el.id}`} x={el.points[0].x} y={el.points[0].y} width={w} height={h} fill="transparent" />;
+              }
+              if (el.type === 'room-circle') {
+                const w = el.points[1].x - el.points[0].x;
+                const h = el.points[1].y - el.points[0].y;
+                const cx = el.points[0].x + w / 2;
+                const cy = el.points[0].y + h / 2;
+                return <ellipse key={`floor-${el.id}`} cx={cx} cy={cy} rx={Math.abs(w/2)} ry={Math.abs(h/2)} fill="transparent" />;
+              }
+              if (el.type === 'hall-curved') {
+                const minX = Math.min(el.points[0].x, el.points[1].x);
+                const minY = Math.min(el.points[0].y, el.points[1].y);
+                const maxX = Math.max(el.points[0].x, el.points[1].x);
+                const maxY = Math.max(el.points[0].y, el.points[1].y);
+                const elbow = el.properties?.elbowPosition || 'top-right';
+                const pathStr = getCurvedHallCenterline(minX, minY, maxX, maxY, elbow, gridSize);
+                return <path key={`floor-${el.id}`} d={pathStr} stroke="transparent" strokeWidth={gridSize} fill="none" strokeLinecap="square" />;
               }
               return null;
             })}
@@ -985,6 +1146,22 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                         fill="url(#room-grid)" 
                       />
                     );
+                  }
+                  if (el.type === 'room-circle') {
+                    const w = el.points[1].x - el.points[0].x;
+                    const h = el.points[1].y - el.points[0].y;
+                    const cx = el.points[0].x + w / 2;
+                    const cy = el.points[0].y + h / 2;
+                    return <ellipse key={`grid-${el.id}`} cx={cx} cy={cy} rx={Math.abs(w/2)} ry={Math.abs(h/2)} fill="url(#room-grid)" />;
+                  }
+                  if (el.type === 'hall-curved') {
+                    const minX = Math.min(el.points[0].x, el.points[1].x);
+                    const minY = Math.min(el.points[0].y, el.points[1].y);
+                    const maxX = Math.max(el.points[0].x, el.points[1].x);
+                    const maxY = Math.max(el.points[0].y, el.points[1].y);
+                    const elbow = el.properties?.elbowPosition || 'top-right';
+                    const pathStr = getCurvedHallCenterline(minX, minY, maxX, maxY, elbow, gridSize);
+                    return <path key={`grid-${el.id}`} d={pathStr} stroke="url(#room-grid)" strokeWidth={gridSize} fill="none" strokeLinecap="square" />;
                   }
                   return null;
                 })}
@@ -1196,6 +1373,27 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                   />
                 );
               }
+              if (el.type === 'room-circle') {
+                const w = el.points[1].x - el.points[0].x;
+                const h = el.points[1].y - el.points[0].y;
+                const cx = el.points[0].x + w / 2;
+                const cy = el.points[0].y + h / 2;
+                return <ellipse key={`shadow-${el.id}`} cx={cx} cy={cy} rx={Math.abs(w/2)} ry={Math.abs(h/2)} fill="none" stroke={`rgba(0,0,0,${shadowIntensity})`} strokeWidth={shadowThickness} transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`} />;
+              }
+              if (el.type === 'hall-curved') {
+                const minX = Math.min(el.points[0].x, el.points[1].x);
+                const minY = Math.min(el.points[0].y, el.points[1].y);
+                const maxX = Math.max(el.points[0].x, el.points[1].x);
+                const maxY = Math.max(el.points[0].y, el.points[1].y);
+                const elbow = el.properties?.elbowPosition || 'top-right';
+                const { outerD, innerD } = getCurvedHallWallPaths(minX, minY, maxX, maxY, elbow, gridSize);
+                return (
+                  <g key={`shadow-${el.id}`}>
+                    <path d={outerD} fill="none" stroke={`rgba(0,0,0,${shadowIntensity})`} strokeWidth={shadowThickness} transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`} strokeLinecap="square" />
+                    {innerD && innerD.includes('L') && <path d={innerD} fill="none" stroke={`rgba(0,0,0,${shadowIntensity})`} strokeWidth={shadowThickness} transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`} strokeLinecap="square" />}
+                  </g>
+                );
+              }
               if (el.type === 'wall') {
                 return (
                   <line
@@ -1227,6 +1425,43 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 const drawable = generator.line(el.points[0].x, el.points[0].y, el.points[1].x, el.points[1].y, { roughness: 1.5, strokeWidth: 2.5, seed });
                 const path = getRoughPath(drawable);
                 return <path key={`wall-${el.id}`} d={path} className="dyson-wall" fill="none" />;
+              }
+              if (el.type === 'room-circle') {
+                const seedStr = el.id.toString();
+                let hash = 0;
+                for (let i = 0; i < seedStr.length; i++) hash = Math.imul(31, hash) + seedStr.charCodeAt(i) | 0;
+                const seed = Math.abs(hash) || 1;
+                const w = el.points[1].x - el.points[0].x;
+                const h = el.points[1].y - el.points[0].y;
+                const cx = el.points[0].x + w / 2;
+                const cy = el.points[0].y + h / 2;
+                const drawable = generator.ellipse(cx, cy, Math.abs(w), Math.abs(h), { roughness: 1.5, strokeWidth: 2.5, seed });
+                const path = getRoughPath(drawable);
+                return <path key={`wall-${el.id}`} d={path} className="dyson-wall" fill="none" />;
+              }
+              if (el.type === 'hall-curved') {
+                const seedStr = el.id.toString();
+                let hash = 0;
+                for (let i = 0; i < seedStr.length; i++) hash = Math.imul(31, hash) + seedStr.charCodeAt(i) | 0;
+                const seed = Math.abs(hash) || 1;
+
+                const minX = Math.min(el.points[0].x, el.points[1].x);
+                const minY = Math.min(el.points[0].y, el.points[1].y);
+                const maxX = Math.max(el.points[0].x, el.points[1].x);
+                const maxY = Math.max(el.points[0].y, el.points[1].y);
+                const elbow = el.properties?.elbowPosition || 'top-right';
+                
+                const { outerD, innerD } = getCurvedHallWallPaths(minX, minY, maxX, maxY, elbow, gridSize);
+                
+                const draw1 = generator.path(outerD, { roughness: 1.5, strokeWidth: 2.5, seed });
+                const draw2 = generator.path(innerD, { roughness: 1.5, strokeWidth: 2.5, seed: seed + 1 });
+                
+                return (
+                  <g key={`wall-${el.id}`}>
+                    <path d={getRoughPath(draw1)} className="dyson-wall" fill="none" />
+                    {innerD && innerD.includes('L') && <path d={getRoughPath(draw2)} className="dyson-wall" fill="none" />}
+                  </g>
+                );
               }
               return null;
             })}
@@ -1372,8 +1607,8 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                     <rect
                       x={minX}
                       y={minY}
-                      width={144}
-                      height={144}
+                      width={gridSize * 3}
+                      height={gridSize * 3}
                       fill={isSelected ? "rgba(59,130,246,0.1)" : "rgba(59,130,246,0.05)"}
                       stroke="rgb(59,130,246)"
                       strokeWidth="2"
@@ -1387,7 +1622,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                       fontWeight="bold"
                       className="select-none"
                     >
-                      Export Tile (144x144)
+                      Export Tile ({gridSize * 3}x{gridSize * 3})
                     </text>
                   </g>
                 );
@@ -1454,6 +1689,22 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 const h = el.points[1].y - el.points[0].y;
                 return <rect key={`global-mask-${el.id}`} x={el.points[0].x} y={el.points[0].y} width={w} height={h} fill="white" />;
               }
+              if (el.type === 'room-circle') {
+                const w = el.points[1].x - el.points[0].x;
+                const h = el.points[1].y - el.points[0].y;
+                const cx = el.points[0].x + w / 2;
+                const cy = el.points[0].y + h / 2;
+                return <ellipse key={`global-mask-${el.id}`} cx={cx} cy={cy} rx={Math.abs(w/2)} ry={Math.abs(h/2)} fill="white" />;
+              }
+              if (el.type === 'hall-curved') {
+                const minX = Math.min(el.points[0].x, el.points[1].x);
+                const minY = Math.min(el.points[0].y, el.points[1].y);
+                const maxX = Math.max(el.points[0].x, el.points[1].x);
+                const maxY = Math.max(el.points[0].y, el.points[1].y);
+                const elbow = el.properties?.elbowPosition || 'top-right';
+                const pathStr = getCurvedHallCenterline(minX, minY, maxX, maxY, elbow, gridSize);
+                return <path key={`global-mask-${el.id}`} d={pathStr} stroke="white" strokeWidth={gridSize} fill="none" strokeLinecap="square" />;
+              }
               return null;
             })}
           </mask>
@@ -1464,6 +1715,22 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 const w = el.points[1].x - el.points[0].x;
                 const h = el.points[1].y - el.points[0].y;
                 return <rect key={`global-anti-mask-${el.id}`} x={el.points[0].x} y={el.points[0].y} width={w} height={h} fill="black" />;
+              }
+              if (el.type === 'room-circle') {
+                const w = el.points[1].x - el.points[0].x;
+                const h = el.points[1].y - el.points[0].y;
+                const cx = el.points[0].x + w / 2;
+                const cy = el.points[0].y + h / 2;
+                return <ellipse key={`global-anti-mask-${el.id}`} cx={cx} cy={cy} rx={Math.abs(w/2)} ry={Math.abs(h/2)} fill="black" />;
+              }
+              if (el.type === 'hall-curved') {
+                const minX = Math.min(el.points[0].x, el.points[1].x);
+                const minY = Math.min(el.points[0].y, el.points[1].y);
+                const maxX = Math.max(el.points[0].x, el.points[1].x);
+                const maxY = Math.max(el.points[0].y, el.points[1].y);
+                const elbow = el.properties?.elbowPosition || 'top-right';
+                const pathStr = getCurvedHallCenterline(minX, minY, maxX, maxY, elbow, gridSize);
+                return <path key={`global-anti-mask-${el.id}`} d={pathStr} stroke="black" strokeWidth={gridSize} fill="none" strokeLinecap="square" />;
               }
               return null;
             })}
@@ -1498,8 +1765,8 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           <rect
             x={startDrawPoint.x}
             y={startDrawPoint.y}
-            width={144}
-            height={144}
+            width={gridSize * 3}
+            height={gridSize * 3}
             fill="rgba(59,130,246,0.1)"
             stroke="rgb(59,130,246)"
             strokeWidth="2"
@@ -1585,7 +1852,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 strokeDasharray="5,5"
                 pointerEvents="none"
               />
-              {selectedElementIds.length === 1 && (el.type.startsWith('decoration-') || el.type === 'image') && (
+              {selectedElementIds.length === 1 && (el.type.startsWith('decoration-') || el.type === 'image' || el.type === 'hall-curved') && (
                 <rect 
                   x={maxX - 5} 
                   y={maxY - 5} 

@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useMapStore } from './store';
-import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download, Undo2, Redo2, Crop, RotateCw, Columns, Eye, EyeOff, Circle, Box, RectangleHorizontal, Shapes, Grid, Layers, Lock, Unlock, Upload, Paintbrush, Shovel } from 'lucide-react';
+import { MousePointer2, Square, SquareDashed, PaintBucket, Eraser, Trash2, Slash, DoorOpen, ArrowUpSquare, ArrowDownSquare, ArrowDownCircle, Download, Undo2, Redo2, Crop, RotateCw, Columns, Eye, EyeOff, Circle, Box, RectangleHorizontal, Shapes, Grid, Layers, Lock, Unlock, Upload, Paintbrush, Shovel, Spline } from 'lucide-react';
 import Canvas from './components/Canvas';
 import PatternEditor from './components/PatternEditor';
 import { generateDysonSegments, segmentsToPath } from './utils/dysonGenerator';
+import MetadataDialog from './components/MetadataDialog';
+import { saveFinalTile } from './utils/db';
 
 const LAYER_NAMES = ['Hatch Layer', 'Floor Layer', 'Room Layer', 'Layer 3'];
 
@@ -48,6 +50,7 @@ function App() {
 
   const [editingSlot, setEditingSlot] = useState<number | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [pendingExport, setPendingExport] = useState<{ svgString: string; bbox: { minX: number; minY: number; maxX: number; maxY: number } } | null>(null);
   const [isHatchPanelOpen, setIsHatchPanelOpen] = useState(false);
   const [isBrushPanelOpen, setIsBrushPanelOpen] = useState(false);
   const [isShovelPanelOpen, setIsShovelPanelOpen] = useState(false);
@@ -135,8 +138,10 @@ function App() {
       label: 'Architecture',
       tools: [
         { id: 'room', icon: Square, label: 'Room' },
+        { id: 'room-circle', icon: Circle, label: 'Circular Room' },
         { id: 'interior', icon: SquareDashed, label: 'Interior' },
         { id: 'wall', icon: Slash, label: 'Wall' },
+        { id: 'hall-curved', icon: Spline, label: 'Curved Hall' },
       ]
     },
     {
@@ -291,11 +296,15 @@ function App() {
     source = source.replace(/stroke="rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)"/g, 'stroke="rgb($1,$2,$3)" stroke-opacity="$4"');
     source = source.replace(/fill="rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)"/g, 'fill="rgb($1,$2,$3)" fill-opacity="$4"');
 
-    const blob = new Blob([source], {type: "image/svg+xml;charset=utf-8"});
+    setPendingExport({ svgString: source, bbox: exportBBox });
+  };
+
+  const actualDownload = (svgString: string, isRegion: boolean) => {
+    const blob = new Blob([svgString], {type: "image/svg+xml;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = bbox ? "osr-map-region.svg" : "osr-map-full.svg";
+    link.download = isRegion ? "osr-map-region.svg" : "osr-map-full.svg";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -399,13 +408,32 @@ function App() {
       </div>
 
       {/* Main Canvas Area */}
-      <div className="flex-1 relative overflow-hidden bg-slate-200">
-        <Canvas onExportRegion={exportMap} />
+      <div className="flex-1 relative overflow-hidden bg-slate-200 flex flex-col">
+        <div className="flex-1 relative">
+          <Canvas onExportRegion={exportMap} />
+        </div>
+        
+        {/* Status Bar */}
+        <div className="h-8 bg-white border-t border-slate-300 shadow-sm flex items-center px-4 justify-between z-10 text-xs text-slate-600 font-medium shrink-0">
+          <div className="flex items-center gap-6">
+            <span className="flex items-center gap-2">
+              <span className="text-slate-400">Layer:</span> 
+              <span className="text-indigo-700">{LAYER_NAMES[activeLayer]}</span>
+            </span>
+            <span className="w-px h-4 bg-slate-300"></span>
+            <span className="flex items-center gap-2">
+              <span className="text-slate-400">Tool:</span> 
+              <span className="text-indigo-700 capitalize">{tool.replace(/-/g, ' ')}</span>
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Right Sidebar - Properties */}
       <div className="w-64 bg-white border-l border-slate-200 p-4 flex flex-col z-10 shadow-sm overflow-y-auto">
         <h1 className="text-lg font-bold text-slate-900 tracking-tight mb-1">OSR Map Builder</h1>
+        <p className="text-xs text-slate-500 mb-6">Create classic dungeon tiles</p>
+
         <div className="mb-6">
           <h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-3 pb-2 border-b border-slate-100 flex items-center gap-2">
             <Layers size={14} />
@@ -423,6 +451,15 @@ function App() {
                   <span className={`text-sm ${activeLayer === layerIndex ? 'text-indigo-700 font-medium' : 'text-slate-600'}`}>{LAYER_NAMES[layerIndex]}</span>
                 </div>
                 <div className="flex items-center gap-1">
+                  {elements.some(el => (el.layer ?? 0) === layerIndex && el.type === 'image') && (
+                    <div className="text-indigo-400 mr-1" title="Background image loaded">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
+                        <circle cx="9" cy="9" r="2"/>
+                        <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+                      </svg>
+                    </div>
+                  )}
                   <button 
                     onClick={(e) => { e.stopPropagation(); toggleLayerLock(layerIndex); }}
                     className={`p-1 rounded hover:bg-slate-200 ${layerLock[layerIndex] ? 'text-red-500' : 'text-slate-400'}`}
@@ -903,6 +940,30 @@ function App() {
             setEditingSlot(null);
           }} 
           onCancel={() => setEditingSlot(null)} 
+        />
+      )}
+
+      {pendingExport && (
+        <MetadataDialog 
+          isOpen={!!pendingExport}
+          svgString={pendingExport.svgString}
+          bbox={pendingExport.bbox}
+          gridSize={gridSize}
+          onClose={() => setPendingExport(null)}
+          onSave={async (metadata, shouldDownload) => {
+            if (metadata) {
+              try {
+                await saveFinalTile(metadata);
+              } catch (err) {
+                console.error("Failed to save metadata to IndexedDB", err);
+                alert("Failed to save metadata.");
+              }
+            }
+            if (shouldDownload) {
+              actualDownload(pendingExport.svgString, true);
+            }
+            setPendingExport(null);
+          }}
         />
       )}
 
