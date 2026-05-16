@@ -68,6 +68,33 @@ function getCurvedHallWallPaths(minX: number, minY: number, maxX: number, maxY: 
   return { outerD, innerD };
 }
 
+function renderRoomInteriorShape(el: MapElement, fill: string, gridSize: number) {
+  if (el.type === 'room' || el.type === 'interior') {
+    const minX = Math.min(el.points[0].x, el.points[1].x);
+    const minY = Math.min(el.points[0].y, el.points[1].y);
+    const w = Math.abs(el.points[1].x - el.points[0].x);
+    const h = Math.abs(el.points[1].y - el.points[0].y);
+    return <rect x={minX} y={minY} width={w} height={h} fill={fill} />;
+  }
+  if (el.type === 'room-circle') {
+    const w = el.points[1].x - el.points[0].x;
+    const h = el.points[1].y - el.points[0].y;
+    const cx = el.points[0].x + w / 2;
+    const cy = el.points[0].y + h / 2;
+    return <ellipse cx={cx} cy={cy} rx={Math.abs(w/2)} ry={Math.abs(h/2)} fill={fill} />;
+  }
+  if (el.type === 'hall-curved') {
+    const minX = Math.min(el.points[0].x, el.points[1].x);
+    const minY = Math.min(el.points[0].y, el.points[1].y);
+    const maxX = Math.max(el.points[0].x, el.points[1].x);
+    const maxY = Math.max(el.points[0].y, el.points[1].y);
+    const elbow = el.properties?.elbowPosition || 'top-right';
+    const pathStr = getCurvedHallCenterline(minX, minY, maxX, maxY, elbow, gridSize);
+    return <path d={pathStr} stroke={fill} strokeWidth={gridSize} fill="none" strokeLinecap="square" />;
+  }
+  return null;
+}
+
 import type { MapElement } from '../store';
 
 const getClickedElement = (rawPoint: Point, elements: MapElement[]) => {
@@ -1027,6 +1054,16 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                     return null;
                   })}
                 </mask>
+
+                <mask id={`hide-curved-${layerIndex}`}>
+                  <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+                  {layerRenderedElements.map((el: MapElement) => {
+                    if (el.type === 'room-circle' || el.type === 'hall-curved') {
+                      return <g key={`hide-curved-${el.id}`}>{renderRoomInteriorShape(el, "black", gridSize)}</g>;
+                    }
+                    return null;
+                  })}
+                </mask>
               </defs>
 
           {/* Layer 1: Dyson Hatch (All sides) */}
@@ -1343,17 +1380,19 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
 
           {/* Layer 4: Shadow (Masked to room interior) */}
           <g mask={`url(#room-mask-${layerIndex})`}>
-            {layerMergedLines[layerIndex].map((line, i) => (
-              <line
-                key={`merged-shadow-${i}`}
-                x1={line.x1} y1={line.y1}
-                x2={line.x2} y2={line.y2}
-                stroke={`rgba(0,0,0,${shadowIntensity})`}
-                strokeWidth={shadowThickness}
-                strokeLinecap="round"
-                transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`}
-              />
-            ))}
+            <g mask={`url(#hide-curved-${layerIndex})`}>
+              {layerMergedLines[layerIndex].map((line, i) => (
+                <line
+                  key={`merged-shadow-${i}`}
+                  x1={line.x1} y1={line.y1}
+                  x2={line.x2} y2={line.y2}
+                  stroke={`rgba(0,0,0,${shadowIntensity})`}
+                  strokeWidth={shadowThickness}
+                  strokeLinecap="round"
+                  transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`}
+                />
+              ))}
+            </g>
             {layerRenderedElements.map((el: MapElement) => {
               if (el.type === 'interior') {
                 const w = el.points[1].x - el.points[0].x;
@@ -1378,7 +1417,22 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 const h = el.points[1].y - el.points[0].y;
                 const cx = el.points[0].x + w / 2;
                 const cy = el.points[0].y + h / 2;
-                return <ellipse key={`shadow-${el.id}`} cx={cx} cy={cy} rx={Math.abs(w/2)} ry={Math.abs(h/2)} fill="none" stroke={`rgba(0,0,0,${shadowIntensity})`} strokeWidth={shadowThickness} transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`} />;
+                return (
+                  <g key={`shadow-${el.id}`}>
+                    <mask id={`mask-shadow-${el.id}`}>
+                      <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+                      {layerRenderedElements.map((other: MapElement) => {
+                        if (other.id !== el.id) {
+                          return <g key={`hide-${other.id}`}>{renderRoomInteriorShape(other, "black", gridSize)}</g>;
+                        }
+                        return null;
+                      })}
+                    </mask>
+                    <g mask={`url(#mask-shadow-${el.id})`}>
+                      <ellipse cx={cx} cy={cy} rx={Math.abs(w/2)} ry={Math.abs(h/2)} fill="none" stroke={`rgba(0,0,0,${shadowIntensity})`} strokeWidth={shadowThickness} transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`} />
+                    </g>
+                  </g>
+                );
               }
               if (el.type === 'hall-curved') {
                 const minX = Math.min(el.points[0].x, el.points[1].x);
@@ -1389,8 +1443,19 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 const { outerD, innerD } = getCurvedHallWallPaths(minX, minY, maxX, maxY, elbow, gridSize);
                 return (
                   <g key={`shadow-${el.id}`}>
-                    <path d={outerD} fill="none" stroke={`rgba(0,0,0,${shadowIntensity})`} strokeWidth={shadowThickness} transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`} strokeLinecap="square" />
-                    {innerD && innerD.includes('L') && <path d={innerD} fill="none" stroke={`rgba(0,0,0,${shadowIntensity})`} strokeWidth={shadowThickness} transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`} strokeLinecap="square" />}
+                    <mask id={`mask-shadow-${el.id}`}>
+                      <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+                      {layerRenderedElements.map((other: MapElement) => {
+                        if (other.id !== el.id) {
+                          return <g key={`hide-${other.id}`}>{renderRoomInteriorShape(other, "black", gridSize)}</g>;
+                        }
+                        return null;
+                      })}
+                    </mask>
+                    <g mask={`url(#mask-shadow-${el.id})`}>
+                      <path d={outerD} fill="none" stroke={`rgba(0,0,0,${shadowIntensity})`} strokeWidth={shadowThickness} transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`} strokeLinecap="square" />
+                      {innerD && innerD.includes('L') && <path d={innerD} fill="none" stroke={`rgba(0,0,0,${shadowIntensity})`} strokeWidth={shadowThickness} transform={`translate(${shadowThickness/2}, ${shadowThickness/2})`} strokeLinecap="square" />}
+                    </g>
                   </g>
                 );
               }
@@ -1413,9 +1478,11 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
 
           {/* Layer 5: Walls (RoughJS) */}
           <g>
-            {layerMergedRoughPaths[layerIndex].map((path, i) => (
-              <path key={`merged-wall-${i}`} d={path} className="dyson-wall" fill="none" />
-            ))}
+            <g mask={`url(#hide-curved-${layerIndex})`}>
+              {layerMergedRoughPaths[layerIndex].map((path, i) => (
+                <path key={`merged-wall-${i}`} d={path} className="dyson-wall" fill="none" />
+              ))}
+            </g>
             {layerRenderedElements.map((el: MapElement) => {
               if (el.type === 'wall') {
                 const seedStr = el.id.toString();
@@ -1437,7 +1504,20 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 const cy = el.points[0].y + h / 2;
                 const drawable = generator.ellipse(cx, cy, Math.abs(w), Math.abs(h), { roughness: 1.5, strokeWidth: 2.5, seed });
                 const path = getRoughPath(drawable);
-                return <path key={`wall-${el.id}`} d={path} className="dyson-wall" fill="none" />;
+                return (
+                  <g key={`wall-${el.id}`}>
+                    <mask id={`mask-wall-${el.id}`}>
+                      <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+                      {layerRenderedElements.map((other: MapElement) => {
+                        if (other.id !== el.id) {
+                          return <g key={`hide-${other.id}`}>{renderRoomInteriorShape(other, "black", gridSize)}</g>;
+                        }
+                        return null;
+                      })}
+                    </mask>
+                    <path d={path} className="dyson-wall" fill="none" mask={`url(#mask-wall-${el.id})`} />
+                  </g>
+                );
               }
               if (el.type === 'hall-curved') {
                 const seedStr = el.id.toString();
@@ -1458,8 +1538,19 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 
                 return (
                   <g key={`wall-${el.id}`}>
-                    <path d={getRoughPath(draw1)} className="dyson-wall" fill="none" />
-                    {innerD && innerD.includes('L') && <path d={getRoughPath(draw2)} className="dyson-wall" fill="none" />}
+                    <mask id={`mask-wall-${el.id}`}>
+                      <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+                      {layerRenderedElements.map((other: MapElement) => {
+                        if (other.id !== el.id) {
+                          return <g key={`hide-${other.id}`}>{renderRoomInteriorShape(other, "black", gridSize)}</g>;
+                        }
+                        return null;
+                      })}
+                    </mask>
+                    <g mask={`url(#mask-wall-${el.id})`}>
+                      <path d={getRoughPath(draw1)} className="dyson-wall" fill="none" />
+                      {innerD && innerD.includes('L') && <path d={getRoughPath(draw2)} className="dyson-wall" fill="none" />}
+                    </g>
                   </g>
                 );
               }
