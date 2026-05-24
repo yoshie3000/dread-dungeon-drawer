@@ -1935,6 +1935,24 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
             strokeDasharray="4 4"
           />
         )}
+        
+        {/* Dimension Tooltip Overlay */}
+        {isDrawing && (tool === 'room' || tool === 'wall' || tool === 'interior' || tool === 'room-circle' || tool === 'fill' || tool === 'unfill') && (
+          <text
+            x={currentDrawPoint.x + 15 / viewState.zoom}
+            y={currentDrawPoint.y - 15 / viewState.zoom}
+            fill="#1e293b"
+            stroke="white"
+            strokeWidth={4 / viewState.zoom}
+            paintOrder="stroke"
+            fontSize={14 / viewState.zoom}
+            fontWeight="bold"
+            fontFamily="sans-serif"
+            className="export-ignore pointer-events-none"
+          >
+            ({Math.round(Math.abs(currentDrawPoint.x - startDrawPoint.x) / gridSize)}, {Math.round(Math.abs(currentDrawPoint.y - startDrawPoint.y) / gridSize)})
+          </text>
+        )}
         {/* Selection Outlines */}
         {renderedElements.filter((el: MapElement) => selectedElementIds.includes(el.id)).map((el: MapElement) => {
           const minX = Math.min(...el.points.map((p: Point) => p.x));
