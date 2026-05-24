@@ -1,24 +1,30 @@
 export type FinalTileSize = 'small' | 'medium' | 'large';
 export type FinalTileType = 'Room' | 'Corridor' | 'Sanctuary' | 'Unique';
-export type SegmentKind = 'wall' | 'connector';
 export type ConnectorSubtype = 'hall' | 'door' | 'stairs';
+export type TileEdge = 'top' | 'right' | 'bottom' | 'left';
 
-export interface FinalTileSegment {
-  kind: SegmentKind;
-  width: number;
-  subtype?: ConnectorSubtype;
+export const EXPORT_TILE_PX_BY_SIZE: Record<FinalTileSize, number> = {
+  small: 500,
+  medium: 1000,
+  large: 2000,
+};
+
+// cellIndex is 0-based per tile-local convention (canvas-natural):
+//   top/bottom: index 0 at left, increases rightward
+//   left/right: index 0 at top, increases downward
+export interface TileConnector {
+  side: TileEdge;
+  cellIndex: number;
+  type: ConnectorSubtype;
 }
-
-// Ensure at least 1 item per side in UI, but technically an array of segments.
-export type FinalTileSide = FinalTileSegment[];
 
 export interface FinalTile {
   id: number;
   name: string;
   size: FinalTileSize;
   type: FinalTileType;
-  // Edges in [Bottom, Left, Top, Right] order.
-  sides: [FinalTileSide, FinalTileSide, FinalTileSide, FinalTileSide];
+  edgeLengthCells: number;
+  connectors: TileConnector[];
   image?: string;
   imageSource?: 'file' | 'drawn';
   imageFilename?: string;
@@ -27,7 +33,7 @@ export interface FinalTile {
 }
 
 const DB_NAME = 'DreadDungeonDB';
-const DB_VERSION = 2; // Incremented for backgrounds
+const DB_VERSION = 3; // Incremented for connector metadata schema change
 const STORE_NAME = 'finalTiles';
 const BG_STORE_NAME = 'backgrounds';
 

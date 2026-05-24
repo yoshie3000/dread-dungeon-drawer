@@ -10,7 +10,7 @@ import { saveFinalTile } from './utils/db';
 const LAYER_NAMES = ['Hatch Layer', 'Floor Layer', 'Room Layer', 'Layer 3'];
 
 function App() {
-  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, shadowThickness, setShadowThickness, shadowIntensity, setShadowIntensity, snapToGrid, setSnapToGrid, showGrid, toggleGrid, showHatch, setShowHatch, activeLayer, setActiveLayer, layerVisibility, toggleLayerVisibility, layerLock, toggleLayerLock, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement, addElement, setElements, setSelectedElementIds, brushColor, setBrushColor, brushWidth, setBrushWidth, brushShape, setBrushShape, brushSmoothness, setBrushSmoothness, shovelTargetLayer, setShovelTargetLayer } = useMapStore();
+  const { tool, setTool, hatchStyle, setHatchStyle, softBorderColor, setSoftBorderColor, hatchDensity, setHatchDensity, hatchWidth, setHatchWidth, hatchOrganic, setHatchOrganic, hatchSmoothness, setHatchSmoothness, stairSteps, setStairSteps, shadowThickness, setShadowThickness, shadowIntensity, setShadowIntensity, snapToGrid, setSnapToGrid, showGrid, toggleGrid, showHatch, setShowHatch, activeLayer, setActiveLayer, layerVisibility, toggleLayerVisibility, layerLock, toggleLayerLock, gridSize, setGridSize, dynamicSegments, setDynamicSegments, savedPatterns, setSavedPattern, undo, redo, pastElements, futureElements, elements, selectedElementIds, updateElement, addElement, setElements, setSelectedElementIds, brushColor, setBrushColor, brushWidth, setBrushWidth, brushShape, setBrushShape, brushSmoothness, setBrushSmoothness, shovelTargetLayer, setShovelTargetLayer, canvasWidthInGrids, setCanvasDimensions } = useMapStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -46,7 +46,6 @@ function App() {
   };
 
   const exportTileEl = elements.find(el => el.type === 'export-tile');
-  const exportTile = exportTileEl ? exportTileEl.points[0] : null;
 
   const [editingSlot, setEditingSlot] = useState<number | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -129,7 +128,9 @@ function App() {
         { id: 'delete', icon: Trash2, label: 'Erase Area' },
         { id: 'rotate', icon: RotateCw, label: 'Rotate' },
         { id: 'export-region', icon: Crop, label: 'Export Region' },
-        { id: 'export-tile', icon: Grid, label: 'Mark Tile' },
+        { id: 'export-tile-small', icon: Grid, label: 'Mark Tile (S)' },
+        { id: 'export-tile-medium', icon: Grid, label: 'Mark Tile (M)' },
+        { id: 'export-tile-large', icon: Grid, label: 'Mark Tile (L)' },
       ]
     },
     {
@@ -390,15 +391,16 @@ function App() {
                 </button>
                 <button
                   onClick={() => {
-                    if (exportTile) {
-                      exportMap({ minX: exportTile.x, minY: exportTile.y, maxX: exportTile.x + 144, maxY: exportTile.y + 144 });
+                    if (exportTileEl) {
+                      const [tl, br] = exportTileEl.points;
+                      exportMap({ minX: tl.x, minY: tl.y, maxX: br.x, maxY: br.y });
                       setOpenMenu(null);
                     }
                   }}
-                  disabled={!exportTile}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm font-medium w-full text-left ${exportTile ? 'text-slate-600 hover:bg-slate-50 hover:text-slate-900' : 'text-slate-300 cursor-not-allowed'}`}
+                  disabled={!exportTileEl}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm font-medium w-full text-left ${exportTileEl ? 'text-slate-600 hover:bg-slate-50 hover:text-slate-900' : 'text-slate-300 cursor-not-allowed'}`}
                 >
-                  <Grid size={18} strokeWidth={2} className={exportTile ? "text-slate-400" : "text-slate-300"} />
+                  <Grid size={18} strokeWidth={2} className={exportTileEl ? "text-slate-400" : "text-slate-300"} />
                   Marked Tile
                 </button>
               </div>
@@ -666,6 +668,21 @@ function App() {
               min="10"
               max="200"
             />
+          </div>
+          <div>
+            <label className="block text-sm text-slate-700 mb-1 mt-4">Canvas Size</label>
+            <select
+              className="w-full rounded border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border bg-white"
+              value={canvasWidthInGrids}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setCanvasDimensions(val, val);
+              }}
+            >
+              <option value={20}>20 x 20</option>
+              <option value={40}>40 x 40</option>
+              <option value={60}>60 x 60</option>
+            </select>
           </div>
           <div className="mt-6 border border-slate-200 rounded-md bg-white overflow-hidden">
             <button 
@@ -944,13 +961,13 @@ function App() {
       )}
 
       {pendingExport && (
-        <MetadataDialog 
+        <MetadataDialog
           isOpen={!!pendingExport}
           svgString={pendingExport.svgString}
           bbox={pendingExport.bbox}
           gridSize={gridSize}
           onClose={() => setPendingExport(null)}
-          onSave={async (metadata, shouldDownload) => {
+          onSave={async (metadata, finalSvgString, shouldDownload) => {
             if (metadata) {
               try {
                 await saveFinalTile(metadata);
@@ -960,7 +977,7 @@ function App() {
               }
             }
             if (shouldDownload) {
-              actualDownload(pendingExport.svgString, true);
+              actualDownload(finalSvgString, true);
             }
             setPendingExport(null);
           }}

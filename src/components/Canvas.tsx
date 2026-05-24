@@ -4,6 +4,8 @@ import { useMapStore } from '../store';
 import type { Point } from '../store';
 import rough from 'roughjs';
 import { segmentsToPath } from '../utils/dysonGenerator';
+import { EXPORT_TILE_PX_BY_SIZE } from '../utils/db';
+import type { FinalTileSize } from '../utils/db';
 
 const generator = rough.generator();
 
@@ -98,7 +100,7 @@ function renderRoomInteriorShape(el: MapElement, fill: string, gridSize: number)
 import type { MapElement } from '../store';
 
 const getClickedElement = (rawPoint: Point, elements: MapElement[]) => {
-  const areaTools = ['room', 'interior', 'fill', 'unfill', 'decoration-square', 'decoration-circle', 'decoration-rectangle', 'export-tile', 'image'];
+  const areaTools = ['room', 'room-circle', 'hall-curved', 'interior', 'fill', 'unfill', 'decoration-square', 'decoration-circle', 'decoration-rectangle', 'export-tile', 'image'];
   
   return [...elements].reverse().find(el => {
     if (areaTools.includes(el.type)) {
@@ -139,6 +141,8 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
     viewState,
     setViewState,
     gridSize,
+    canvasWidthInGrids,
+    canvasHeightInGrids,
     showGrid,
     showHatch,
     layerVisibility,
@@ -563,12 +567,14 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           if (maxX - minX > 0 && maxY - minY > 0) {
             onExportRegion?.({ minX, minY, maxX, maxY });
           }
-        } else if (tool === 'export-tile') {
+        } else if (tool.startsWith('export-tile-')) {
+          const sizeKey = tool.replace('export-tile-', '') as FinalTileSize;
+          const sizePx = EXPORT_TILE_PX_BY_SIZE[sizeKey];
           const exportPoint = startDrawPoint;
           const newEl: MapElement = {
             id: 'export-tile-marker',
             type: 'export-tile' as any,
-            points: [exportPoint, { x: exportPoint.x + gridSize * 3, y: exportPoint.y + gridSize * 3 }]
+            points: [exportPoint, { x: exportPoint.x + sizePx, y: exportPoint.y + sizePx }]
           };
           setElements([...elements.filter(e => e.type !== 'export-tile'), newEl]);
           setTool('select');
@@ -962,7 +968,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
         </filter>
         {renderedElements.filter((el: MapElement) => el.type === 'shovel').map((el: MapElement) => (
           <mask id={`shovel-mask-${el.id}`} key={`shovel-mask-${el.id}`}>
-            <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
+            <rect x={0} y={0} width={canvasWidthInGrids * gridSize} height={canvasHeightInGrids * gridSize} fill="black" />
             {el.properties?.brushShape === 'splat' || el.properties?.brushShape === 'pentagon' ? (
               <g>
                 {filterAsteriskPoints(el.points, el.properties?.brushWidth || 10).map((p, i) => {
@@ -1004,7 +1010,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
             <g id={`layer-${layerIndex}-content`} key={`layer-def-${layerIndex}`}>
               <defs>
                 <mask id={`room-mask-${layerIndex}`}>
-                  <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
+                  <rect x={0} y={0} width={canvasWidthInGrids * gridSize} height={canvasHeightInGrids * gridSize} fill="black" />
                   {layerRenderedElements.map((el: MapElement) => {
                     if (el.type === 'room' || el.type === 'interior') {
                       const w = el.points[1].x - el.points[0].x;
@@ -1032,7 +1038,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 </mask>
 
                 <mask id={`fill-mask-${layerIndex}`}>
-                  <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
+                  <rect x={0} y={0} width={canvasWidthInGrids * gridSize} height={canvasHeightInGrids * gridSize} fill="black" />
                   {layerRenderedElements.map((el: MapElement) => {
                     if (el.type === 'fill' || el.type === 'unfill') {
                       const w = el.points[1].x - el.points[0].x;
@@ -1044,7 +1050,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 </mask>
 
                 <mask id={`floor-mask-${layerIndex}`}>
-                  <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+                  <rect x={0} y={0} width={canvasWidthInGrids * gridSize} height={canvasHeightInGrids * gridSize} fill="white" />
                   {layerRenderedElements.map((el: MapElement) => {
                     if (el.type === 'interior') {
                       const w = el.points[1].x - el.points[0].x;
@@ -1056,7 +1062,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 </mask>
 
                 <mask id={`hide-curved-${layerIndex}`}>
-                  <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+                  <rect x={0} y={0} width={canvasWidthInGrids * gridSize} height={canvasHeightInGrids * gridSize} fill="white" />
                   {layerRenderedElements.map((el: MapElement) => {
                     if (el.type === 'room-circle' || el.type === 'hall-curved') {
                       return <g key={`hide-curved-${el.id}`}>{renderRoomInteriorShape(el, "black", gridSize)}</g>;
@@ -1207,8 +1213,8 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
 
           {/* Layer 3.5: Fill Tool (Negative Space) */}
           <g mask={`url(#fill-mask-${layerIndex})`}>
-            <rect x="-10000" y="-10000" width="20000" height="20000" fill="#f8fafc" />
-            <rect x="-10000" y="-10000" width="20000" height="20000" fill={`url(#${hatchStyle})`} />
+            <rect x={0} y={0} width={canvasWidthInGrids * gridSize} height={canvasHeightInGrids * gridSize} fill="#f8fafc" />
+            <rect x={0} y={0} width={canvasWidthInGrids * gridSize} height={canvasHeightInGrids * gridSize} fill={`url(#${hatchStyle})`} />
           </g>
 
           {/* Layer 3.8: Stairs */}
@@ -1420,7 +1426,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 return (
                   <g key={`shadow-${el.id}`}>
                     <mask id={`mask-shadow-${el.id}`}>
-                      <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+                      <rect x={0} y={0} width={canvasWidthInGrids * gridSize} height={canvasHeightInGrids * gridSize} fill="white" />
                       {layerRenderedElements.map((other: MapElement) => {
                         if (other.id !== el.id) {
                           return <g key={`hide-${other.id}`}>{renderRoomInteriorShape(other, "black", gridSize)}</g>;
@@ -1444,7 +1450,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 return (
                   <g key={`shadow-${el.id}`}>
                     <mask id={`mask-shadow-${el.id}`}>
-                      <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+                      <rect x={0} y={0} width={canvasWidthInGrids * gridSize} height={canvasHeightInGrids * gridSize} fill="white" />
                       {layerRenderedElements.map((other: MapElement) => {
                         if (other.id !== el.id) {
                           return <g key={`hide-${other.id}`}>{renderRoomInteriorShape(other, "black", gridSize)}</g>;
@@ -1507,7 +1513,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 return (
                   <g key={`wall-${el.id}`}>
                     <mask id={`mask-wall-${el.id}`}>
-                      <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+                      <rect x={0} y={0} width={canvasWidthInGrids * gridSize} height={canvasHeightInGrids * gridSize} fill="white" />
                       {layerRenderedElements.map((other: MapElement) => {
                         if (other.id !== el.id) {
                           return <g key={`hide-${other.id}`}>{renderRoomInteriorShape(other, "black", gridSize)}</g>;
@@ -1539,7 +1545,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                 return (
                   <g key={`wall-${el.id}`}>
                     <mask id={`mask-wall-${el.id}`}>
-                      <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+                      <rect x={0} y={0} width={canvasWidthInGrids * gridSize} height={canvasHeightInGrids * gridSize} fill="white" />
                       {layerRenderedElements.map((other: MapElement) => {
                         if (other.id !== el.id) {
                           return <g key={`hide-${other.id}`}>{renderRoomInteriorShape(other, "black", gridSize)}</g>;
@@ -1692,14 +1698,16 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
               } else if (el.type === 'export-tile') {
                 const minX = Math.min(el.points[0].x, el.points[1].x);
                 const minY = Math.min(el.points[0].y, el.points[1].y);
+                const w = Math.abs(el.points[1].x - el.points[0].x);
+                const h = Math.abs(el.points[1].y - el.points[0].y);
                 const isSelected = selectedElementIds.includes(el.id);
                 return (
                   <g key={el.id} className="export-ignore" style={{ cursor: isSelected ? 'move' : 'pointer' }}>
                     <rect
                       x={minX}
                       y={minY}
-                      width={gridSize * 3}
-                      height={gridSize * 3}
+                      width={w}
+                      height={h}
                       fill={isSelected ? "rgba(59,130,246,0.1)" : "rgba(59,130,246,0.05)"}
                       stroke="rgb(59,130,246)"
                       strokeWidth="2"
@@ -1713,7 +1721,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
                       fontWeight="bold"
                       className="select-none"
                     >
-                      Export Tile ({gridSize * 3}x{gridSize * 3})
+                      Export Tile ({w}x{h})
                     </text>
                   </g>
                 );
@@ -1773,7 +1781,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
           );
         })}
           <mask id="global-room-mask">
-            <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
+            <rect x={0} y={0} width={canvasWidthInGrids * gridSize} height={canvasHeightInGrids * gridSize} fill="black" />
             {renderedElements.map((el: MapElement) => {
               if (el.type === 'room' || el.type === 'interior') {
                 const w = el.points[1].x - el.points[0].x;
@@ -1800,7 +1808,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
             })}
           </mask>
           <mask id="global-anti-room-mask">
-            <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+            <rect x={0} y={0} width={canvasWidthInGrids * gridSize} height={canvasHeightInGrids * gridSize} fill="white" />
             {renderedElements.map((el: MapElement) => {
               if (el.type === 'room' || el.type === 'interior') {
                 const w = el.points[1].x - el.points[0].x;
@@ -1852,18 +1860,22 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
         })}
 
         {/* Current Drawing Overlay */}
-        {isDrawing && tool === 'export-tile' && (
-          <rect
-            x={startDrawPoint.x}
-            y={startDrawPoint.y}
-            width={gridSize * 3}
-            height={gridSize * 3}
-            fill="rgba(59,130,246,0.1)"
-            stroke="rgb(59,130,246)"
-            strokeWidth="2"
-            strokeDasharray="4 4"
-          />
-        )}
+        {isDrawing && tool.startsWith('export-tile-') && (() => {
+          const sizeKey = tool.replace('export-tile-', '') as FinalTileSize;
+          const sizePx = EXPORT_TILE_PX_BY_SIZE[sizeKey];
+          return (
+            <rect
+              x={startDrawPoint.x}
+              y={startDrawPoint.y}
+              width={sizePx}
+              height={sizePx}
+              fill="rgba(59,130,246,0.1)"
+              stroke="rgb(59,130,246)"
+              strokeWidth="2"
+              strokeDasharray="4 4"
+            />
+          );
+        })()}
         {isDrawing && (tool === 'brush' || tool === 'shovel') && currentDrawPath.length > 0 && (
           brushShape === 'splat' || brushShape === 'pentagon' ? (
             <g opacity={tool === 'shovel' ? 0.5 : 1} className="export-ignore">
@@ -1900,7 +1912,7 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
             />
           )
         )}
-        {isDrawing && tool !== 'select' && tool !== 'rotate' && tool !== 'export-tile' && tool !== 'brush' && tool !== 'shovel' && (
+        {isDrawing && tool !== 'select' && tool !== 'rotate' && !tool.startsWith('export-tile-') && tool !== 'brush' && tool !== 'shovel' && (
           <rect 
             className="export-ignore"
             x={tool.startsWith('decoration-') && snapToGrid ? startDrawPoint.x - Math.abs(currentDrawPoint.x - startDrawPoint.x) : Math.min(startDrawPoint.x, currentDrawPoint.x)} 
@@ -1974,11 +1986,26 @@ export default function Canvas({ onExportRegion }: CanvasProps) {
             pointerEvents="none"
           />
         )}
+        
+        {/* Canvas Border */}
+        <rect 
+          x={0} 
+          y={0} 
+          width={canvasWidthInGrids * gridSize} 
+          height={canvasHeightInGrids * gridSize} 
+          fill="none" 
+          stroke="black" 
+          strokeWidth="4" 
+          pointerEvents="none" 
+          vectorEffect="non-scaling-stroke"
+        />
       </g>
       
       {/* Global Grid Overlay */}
       {showGrid && (
-        <rect width="100%" height="100%" fill="url(#global-grid)" pointerEvents="none" />
+        <g transform={`translate(${viewState.x}, ${viewState.y}) scale(${viewState.zoom})`} pointerEvents="none">
+          <rect x={0} y={0} width={canvasWidthInGrids * gridSize} height={canvasHeightInGrids * gridSize} fill="url(#room-grid)" pointerEvents="none" />
+        </g>
       )}
     </svg>
     </div>
