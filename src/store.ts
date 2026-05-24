@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import type { Segment } from './utils/dysonGenerator'
 
-export type ElementType = 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective' | 'image' | 'brush' | 'shovel';
-export type Tool = 'select' | 'room' | 'interior' | 'fill' | 'unfill' | 'wall' | 'door' | 'door-double' | 'door-secret' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete' | 'export-region' | 'export-tile' | 'rotate' | 'decoration-square' | 'decoration-circle' | 'decoration-rectangle' | 'image' | 'brush' | 'shovel';
+export type ElementType = 'room' | 'room-circle' | 'interior' | 'fill' | 'unfill' | 'wall' | 'hall-curved' | 'door' | 'stair' | 'stair-depth' | 'stair-perspective' | 'image' | 'brush' | 'shovel';
+export type Tool = 'select' | 'room' | 'room-circle' | 'interior' | 'fill' | 'unfill' | 'wall' | 'hall-curved' | 'door' | 'door-double' | 'door-secret' | 'stair' | 'stair-depth' | 'stair-perspective' | 'delete' | 'export-region' | 'export-tile' | 'export-tile-small' | 'export-tile-medium' | 'export-tile-large' | 'rotate' | 'decoration-square' | 'decoration-circle' | 'decoration-rectangle' | 'image' | 'brush' | 'shovel';
 
 export interface Point {
   x: number;
@@ -79,11 +79,20 @@ interface MapState {
   showGrid: boolean;
   toggleGrid: () => void;
   setGridSize: (gridSize: number) => void;
+  canvasWidthInGrids: number;
+  canvasHeightInGrids: number;
+  setCanvasDimensions: (width: number, height: number) => void;
 }
 
 export const useMapStore = create<MapState>((set) => ({
   tool: 'room',
-  setTool: (tool) => set({ tool }),
+  setTool: (tool) => set(() => {
+    const objectTools = ['decoration-square', 'decoration-circle', 'decoration-rectangle'];
+    if (tool === 'room' || tool === 'room-circle' || tool === 'wall' || tool === 'hall-curved' || tool.startsWith('door') || objectTools.includes(tool)) {
+      return { tool, activeLayer: 2 };
+    }
+    return { tool };
+  }),
   activeLayer: 0,
   setActiveLayer: (activeLayer) => set({ activeLayer }),
   layerVisibility: [true, true, true, true],
@@ -177,16 +186,19 @@ export const useMapStore = create<MapState>((set) => ({
   setGridSize: (gridSize) => set({ gridSize }),
   brushColor: '#000000',
   setBrushColor: (brushColor) => set({ brushColor }),
-  brushWidth: 10,
+  brushWidth: 50,
   setBrushWidth: (brushWidth) => set({ brushWidth }),
-  brushShape: 'round',
+  brushShape: 'pentagon',
   setBrushShape: (brushShape) => set({ brushShape }),
   brushSmoothness: 0.5,
   setBrushSmoothness: (brushSmoothness) => set({ brushSmoothness }),
   shovelTargetLayer: 0,
   setShovelTargetLayer: (shovelTargetLayer) => set({ shovelTargetLayer }),
-  showHatch: true,
+  showHatch: false,
   setShowHatch: (showHatch) => set({ showHatch }),
   showGrid: true,
   toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
+  canvasWidthInGrids: 20,
+  canvasHeightInGrids: 20,
+  setCanvasDimensions: (width, height) => set({ canvasWidthInGrids: width, canvasHeightInGrids: height }),
 }))
